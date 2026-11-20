@@ -1,0 +1,129 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import * as THREE from 'three';
+import { CARD_SPECS, createCardGeometry } from './cardGeometry';
+import {
+  LANYARD_SPECS,
+  buildNormalizedLanyardCurve,
+  computeApexCrossover,
+  createLanyardGeometry,
+} from './lanyardGeometry';
+import { createHardwareGeometries, disposeHardwareGeometries } from './hardwareGeometry';
+
+test('CR80 ID card geometry has exact 5.4 x 8.56 x 0.076 cm bounding dimensions', () => {
+  const geo = createCardGeometry();
+  geo.computeBoundingBox();
+  const bb = geo.boundingBox!;
+  const size = new THREE.Vector3();
+  bb.getSize(size);
+
+  assert.ok(Math.abs(size.x - CARD_SPECS.width) < 0.02, `Expected width 5.4, got ${size.x}`);
+  assert.ok(Math.abs(size.y - CARD_SPECS.height) < 0.02, `Expected height 8.56, got ${size.y}`);
+  assert.ok(
+    Math.abs(size.z - CARD_SPECS.thickness) < 0.005,
+    `Expected thickness 0.076, got ${size.z}`
+  );
+
+  // Centered around origin
+  const center = new THREE.Vector3();
+  bb.getCenter(center);
+  assert.ok(Math.abs(center.x) < 0.01);
+  assert.ok(Math.abs(center.y) < 0.01);
+  assert.ok(Math.abs(center.z) < 0.002);
+
+  geo.dispose();
+});
+
+test('CR80 ID card splits into 3 material groups with normalized & back-mirrored planar UVs', () => {
+  const geo = createCardGeometry();
+  assert.equal(geo.groups.length, 3);
+  assert.equal(geo.groups[0].materialIndex, 0); // Front
+  assert.equal(geo.groups[1].materialIndex, 1); // Back
+  assert.equal(geo.groups[2].materialIndex, 2); // Edge
+  assert.ok(geo.groups[0].count > 0);
+  assert.ok(geo.groups[1].count > 0);
+  assert.ok(geo.groups[2].count > 0);
+
+  const pos = geo.getAttribute('position') as THREE.BufferAttribute;
+  const uv = geo.getAttribute('uv') as THREE.BufferAttribute;
+
+  // Verify Front UVs: u = (x + W/2)/W, v = (y + H/2)/H
+  for (let i = geo.groups[0].start; i < geo.groups[0].start + geo.groups[0].count; i++) {
+    const x = pos.getX(i);
+    const y = pos.getY(i);
+    const expectedU = THREE.MathUtils.clamp((x + CARD_SPECS.width / 2) / CARD_SPECS.width, 0, 1);
+    const expectedV = THREE.MathUtils.clamp((y + CARD_SPECS.height / 2) / CARD_SPECS.height, 0, 1);
+    assert.ok(Math.abs(uv.getX(i) - expectedU) < 1e-4);
+    assert.ok(Math.abs(uv.getY(i) - expectedV) < 1e-4);
+  }
+
+  // Verify Back UVs are horizontally mirrored: u = 1 - (x + W/2)/W
+  for (let i = geo.groups[1].start; i < geo.groups[1].start + geo.groups[1].count; i++) {
+    const x = pos.getX(i);
+    const y = pos.getY(i);
+    const expectedU = THREE.MathUtils.clamp(
+      1.0 - (x + CARD_SPECS.width / 2) / CARD_SPECS.width,
+      0,
+      1
+    );
+    const expectedV = THREE.MathUtils.clamp((y + CARD_SPECS.height / 2) / CARD_SPECS.height, 0, 1);
+    assert.ok(Math.abs(uv.getX(i) - expectedU) < 1e-4);
+    assert.ok(Math.abs(uv.getY(i) - expectedV) < 1e-4);
+  }
+
+  geo.dispose();
+});
+
+test('Lanyard CatmullRomCurve3 normalizes to exact 80.00 cm (+/- 0.01 cm) with apex Z crossover', () => {
+  const { totalLength, points } = buildNormalizedLanyardCurve();
+  assert.equal(points.length, LANYARD_SPECS.samples + 1);
+  assert.ok(
+    Math.abs(totalLength - 80.0) <= 0.05,
+    `Expected lanyard length ~80.00 cm, got ${totalLength}`
+  );
+
+  // Verify crossover separation at bottom apex prevents Z-fighting
+  const start = computeApexCrossover(0.0);
+  const end = computeApexCrossover(1.0);
+  const mid = computeApexCrossover(0.5);
+
+  assert.ok(start.zOffset > 0.07);
+  assert.ok(end.zOffset < -0.07);
+  assert.ok(Math.abs(start.zOffset - end.zOffset - 0.16) < 1e-6);
+  assert.equal(mid.zOffset, 0);
+  assert.equal(mid.twistRad, 0);
+
+  const { geometry } = createLanyardGeometry();
+  const uv = geometry.getAttribute('uv') as THREE.BufferAttribute;
+  let minU = Infinity;
+  let maxU = -Infinity;
+  let minV = Infinity;
+  let maxV = -Infinity;
+  for (let i = 0; i < uv.count; i++) {
+    minU = Math.min(minU, uv.getX(i));
+    maxU = Math.max(maxU, uv.getX(i));
+    minV = Math.min(minV, uv.getY(i));
+    maxV = Math.max(maxV, uv.getY(i));
+  }
+  assert.ok(minU >= 0 && maxU <= 1.0001);
+  assert.ok(minV >= 0 && Math.abs(maxV - 1.0) < 0.01);
+  geometry.dispose();
+});
+
+test('Hardware geometries build all 7 metallic parts cleanly', () => {
+  const hw = createHardwareGeometries();
+  assert.ok(hw.crimpClamp.attributes.position.count > 0);
+  assert.ok(hw.crimpCollar.attributes.position.count > 0);
+  assert.ok(hw.swivelRing.attributes.position.count > 0);
+  assert.ok(hw.swivelBarrel.attributes.position.count > 0);
+  assert.ok(hw.claspBody.attributes.position.count > 0);
+  assert.ok(hw.claspThumbTrigger.attributes.position.count > 0);
+  assert.ok(hw.claspHookLoop.attributes.position.count > 0);
+
+  // Verify hook loop passes through slot punch elevation (y ~ 3.78 cm)
+  hw.claspHookLoop.computeBoundingBox();
+  const hookMinY = hw.claspHookLoop.boundingBox!.min.y;
+  assert.ok(hookMinY >= 3.63 && hookMinY <= 3.85, `Hook min Y ${hookMinY} should fit slot punch`);
+
+  disposeHardwareGeometries(hw);
+});
