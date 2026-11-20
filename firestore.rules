@@ -1,0 +1,256 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 1 / Global Safety Net: Default-deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Phase 3: Reusable Hardened Global Helpers
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isNumeric(val) {
+      return val is int || val is float;
+    }
+
+    function isValidHexColor(val) {
+      return val is string && val.size() >= 4 && val.size() <= 9 && val.matches('^#[0-9a-fA-F]{3,8}$');
+    }
+
+    function isValidImageDataUrl(val, maxLen) {
+      return val is string
+        && val.size() <= maxLen
+        && (
+          val == ''
+          || (val.size() >= 23 && val[0:23] == 'data:image/webp;base64,')
+          || (val.size() >= 23 && val[0:23] == 'data:image/jpeg;base64,')
+          || (val.size() >= 22 && val[0:22] == 'data:image/png;base64,')
+        );
+    }
+
+    function isValidArtworkUrl(val) {
+      return isValidImageDataUrl(val, 240000);
+    }
+
+    function isValidThumbnailUrl(val) {
+      return isValidImageDataUrl(val, 45000);
+    }
+
+    function isValidLayerPreset(layer) {
+      return layer is map
+        && layer.keys().hasAll([
+          'fitMode',
+          'scale',
+          'offsetX',
+          'offsetY',
+          'rotation',
+          'backgroundColor',
+          'lanyardRepeat',
+          'uploadedFileName',
+          'artworkDataUrl'
+        ])
+        && layer.keys().hasOnly([
+          'fitMode',
+          'scale',
+          'offsetX',
+          'offsetY',
+          'rotation',
+          'backgroundColor',
+          'lanyardRepeat',
+          'uploadedFileName',
+          'artworkDataUrl'
+        ])
+        && layer.fitMode is string
+        && layer.fitMode in ['cover', 'contain', 'stretch']
+        && isNumeric(layer.scale)
+        && layer.scale >= 0.5
+        && layer.scale <= 2.5
+        && isNumeric(layer.offsetX)
+        && layer.offsetX >= -1.0
+        && layer.offsetX <= 1.0
+        && isNumeric(layer.offsetY)
+        && layer.offsetY >= -1.0
+        && layer.offsetY <= 1.0
+        && isNumeric(layer.rotation)
+        && (layer.rotation == 0 || layer.rotation == 90 || layer.rotation == 180 || layer.rotation == 270)
+        && isValidHexColor(layer.backgroundColor)
+        && isNumeric(layer.lanyardRepeat)
+        && layer.lanyardRepeat >= 1
+        && layer.lanyardRepeat <= 8
+        && layer.uploadedFileName is string
+        && layer.uploadedFileName.size() <= 120
+        && isValidArtworkUrl(layer.artworkDataUrl);
+    }
+
+    function isValidStudioConfig(cfg) {
+      return cfg is map
+        && cfg.keys().hasAll([
+          'activeTemplate',
+          'cardFinish',
+          'cardCaseEnabled',
+          'cardCaseStyle',
+          'edgePreset',
+          'hardwareFinish',
+          'hologramEnabled',
+          'hologramIntensity',
+          'studioBackdrop',
+          'showLanyard',
+          'front',
+          'back',
+          'lanyard'
+        ])
+        && cfg.keys().hasOnly([
+          'activeTemplate',
+          'cardFinish',
+          'cardCaseEnabled',
+          'cardCaseStyle',
+          'edgePreset',
+          'hardwareFinish',
+          'hologramEnabled',
+          'hologramIntensity',
+          'studioBackdrop',
+          'showLanyard',
+          'front',
+          'back',
+          'lanyard'
+        ])
+        && cfg.activeTemplate is string
+        && cfg.activeTemplate in ['tech-vip', 'corporate-sec', 'minimal-staff']
+        && cfg.cardFinish is string
+        && cfg.cardFinish in ['glossy', 'matte']
+        && cfg.cardCaseEnabled is bool
+        && cfg.cardCaseStyle is string
+        && cfg.cardCaseStyle in [
+          'matte-obsidian',
+          'frosted-clear',
+          'glacier-white',
+          'slate-aluminum',
+          'cobalt-frame'
+        ]
+        && cfg.edgePreset is string
+        && cfg.edgePreset in ['white', 'black', 'gold', 'silver']
+        && cfg.hardwareFinish is string
+        && cfg.hardwareFinish in ['brushed-steel', 'matte-black', 'champagne-gold']
+        && cfg.hologramEnabled is bool
+        && isNumeric(cfg.hologramIntensity)
+        && cfg.hologramIntensity >= 0.2
+        && cfg.hologramIntensity <= 1.0
+        && cfg.studioBackdrop is string
+        && cfg.studioBackdrop in ['obsidian', 'slate', 'studio-light']
+        && cfg.showLanyard is bool
+        && isValidLayerPreset(cfg.front)
+        && isValidLayerPreset(cfg.back)
+        && isValidLayerPreset(cfg.lanyard);
+    }
+
+    // Pillar 2: Standalone Validation Blueprint (Anti-Update-Gap)
+    function isValidCardPreset(data) {
+      return data is map
+        && data.keys().hasAll([
+          'title',
+          'description',
+          'ownerId',
+          'authorName',
+          'isPublic',
+          'thumbnailDataUrl',
+          'config',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'title',
+          'description',
+          'ownerId',
+          'authorName',
+          'isPublic',
+          'thumbnailDataUrl',
+          'config',
+          'createdAt',
+          'updatedAt'
+        ])
+        && data.title is string
+        && data.title.size() >= 1
+        && data.title.size() <= 80
+        && data.description is string
+        && data.description.size() <= 200
+        && isValidId(data.ownerId)
+        && data.ownerId == request.auth.uid
+        && data.authorName is string
+        && data.authorName.size() >= 1
+        && data.authorName.size() <= 60
+        && data.isPublic is bool
+        && isValidThumbnailUrl(data.thumbnailDataUrl)
+        && isValidStudioConfig(data.config)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // User-Generated Shareable 3D ID Card Presets
+    match /presets/{presetId} {
+      // Single-doc get: public shared presets are open for cross-device 3D interaction; private drafts owner-only
+      allow get: if isValidId(presetId)
+        && (resource == null || existing().isPublic == true || (isSignedIn() && existing().ownerId == request.auth.uid));
+
+      // Pillar 8: Secure List Queries — explicitly evaluates resource.data (no client delegation, zero get() calls)
+      allow list: if resource.data.isPublic == true
+        || (isSignedIn() && resource.data.ownerId == request.auth.uid);
+
+      // Create: verified signed-in creator, strict ID & schema blueprint, server timestamps
+      allow create: if isVerifiedUser()
+        && isValidId(presetId)
+        && isValidCardPreset(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      // Update: validation blueprint first, immutable ownerId & createdAt, action-based affectedKeys allowlists
+      allow update: if isVerifiedUser()
+        && isValidId(presetId)
+        && isValidCardPreset(incoming())
+        && existing().ownerId == request.auth.uid
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Action: Update preset design, title, description, visibility, or thumbnail
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'title',
+            'description',
+            'isPublic',
+            'thumbnailDataUrl',
+            'config',
+            'updatedAt'
+          ])
+          ||
+          // Action: Toggle public/private visibility only
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'isPublic',
+            'updatedAt'
+          ])
+        );
+
+      // Delete: verified owner only
+      allow delete: if isVerifiedUser()
+        && isValidId(presetId)
+        && existing().ownerId == request.auth.uid;
+    }
+  }
+}

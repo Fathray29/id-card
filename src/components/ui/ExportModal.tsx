@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { AlertCircle, Camera, CheckCircle2, Film, Loader2, X } from 'lucide-react';
 import { useStudioStore, type ExportMode } from '../../store/useStudioStore';
-import { render1080p60Animation, render12mpStill } from '../../utils/renderEngine';
+import { RENDER_FPS, render1080p24Animation, render12mpStill } from '../../utils/renderEngine';
 import {
   EXPORT_RESOLUTIONS,
   type AnimationPreset,
@@ -97,7 +97,7 @@ export function ExportModal() {
 
   if (!open) return null;
 
-  const totalFrames = videoDurationSec * 60;
+  const totalFrames = videoDurationSec * RENDER_FPS;
   const activeVideoRes = EXPORT_RESOLUTIONS[exportAspect];
   const activeStillRes = STILL_12MP_RESOLUTIONS[exportAspect];
   const activeRes = mode === 'still' ? activeStillRes : activeVideoRes;
@@ -170,14 +170,14 @@ export function ExportModal() {
       currentFrame: 0,
       totalFrames,
       percent: 0,
-      stageLabel: `Preparing ${totalFrames} frames @ 60 fps (${blurSamples}× temporal supersampling)...`,
+      stageLabel: `Preparing ${totalFrames} frames @ ${RENDER_FPS} fps (${blurSamples}× temporal supersampling)...`,
       error: null,
       lastCompletedFile: null,
     });
 
     try {
       const msaaSamples = useStudioStore.getState().performanceTier.msaaSamples;
-      const filename = await render1080p60Animation(rigBridge, {
+      const filename = await render1080p24Animation(rigBridge, {
         preset: videoPreset,
         durationSec: videoDurationSec,
         aspectRatio: exportAspect,
@@ -237,7 +237,7 @@ export function ExportModal() {
             <p className="text-xs font-mono tabular-nums text-zinc-400 mt-0.5">
               {mode === 'still'
                 ? `${activeStillRes.width}×${activeStillRes.height} · 12MP · 16× SSAA · Dithered`
-                : `${activeVideoRes.width}×${activeVideoRes.height} · 60fps · 24 Mbps · ${
+                : `${activeVideoRes.width}×${activeVideoRes.height} · ${RENDER_FPS}fps · 24 Mbps · ${
                     blurSamples > 1 ? `${blurSamples}× Motion Blur` : 'MSAA'
                   }`}
             </p>
@@ -259,7 +259,7 @@ export function ExportModal() {
             {(
               [
                 { id: 'still', label: '12MP Studio Still', icon: Camera },
-                { id: 'video', label: '1080p 60fps Cinema', icon: Film },
+                { id: 'video', label: '1080p 24fps Cinema', icon: Film },
               ] as Array<{ id: ExportMode; label: string; icon: typeof Camera }>
             ).map((tab) => {
               const Icon = tab.icon;
@@ -430,7 +430,7 @@ export function ExportModal() {
               {/* Duration / Frame Count */}
               <div className="space-y-2">
                 <span className="text-xs font-medium text-zinc-300">
-                  Duration (Locked 60 fps · 24 Mbps · Seamless Loop)
+                  Duration (Locked {RENDER_FPS} fps · 24 Mbps · Seamless Loop)
                 </span>
                 <div className="grid grid-cols-4 gap-1.5">
                   {([12, 16, 20, 24] as const).map((sec) => (
@@ -446,7 +446,7 @@ export function ExportModal() {
                       }`}
                     >
                       {sec}s
-                      <span className="block text-[10px] opacity-70">{sec * 60}f</span>
+                      <span className="block text-[10px] opacity-70">{sec * RENDER_FPS}f</span>
                     </button>
                   ))}
                 </div>
@@ -529,7 +529,7 @@ export function ExportModal() {
                 ) : (
                   <>
                     <Film className="w-3.5 h-3.5" />
-                    Render {totalFrames} Frames (60fps)
+                    Render {totalFrames} Frames ({RENDER_FPS}fps)
                   </>
                 )}
               </button>

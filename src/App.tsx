@@ -8,9 +8,12 @@ import { StudioScene } from './components/canvas/StudioScene';
 import { SidebarEditor } from './components/ui/SidebarEditor';
 import { FloatingDock } from './components/ui/FloatingDock';
 import { ExportModal } from './components/ui/ExportModal';
+import { SharedPresetBanner } from './components/ui/SharedPresetBanner';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { PresetProvider } from './context/PresetProvider';
 import { useStudioStore } from './store/useStudioStore';
 
-export default function App() {
+function StudioAppShell() {
   const activeTemplate = useStudioStore((s) => s.activeTemplate);
   const cameraPreset = useStudioStore((s) => s.cameraPreset);
   const isFlipped = useStudioStore((s) => s.isFlipped);
@@ -61,17 +64,28 @@ export default function App() {
       data-hologram={hologramEnabled ? 'on' : 'off'}
       data-reel={previewReel ? 'playing' : 'idle'}
     >
-      {/* Left 360px Sidebar on Desktop / Slide-Up Bottom Sheet Drawer on Mobile */}
+      {/* Left 360px Sidebar on Desktop / Swipe-Down Bottom Sheet Drawer on Mobile */}
       <SidebarEditor />
 
       {/* Full-Screen 3D Viewport + Responsive Floating Controls */}
       <main className="relative flex-1 min-w-0 h-full overflow-hidden">
         <StudioScene />
+        <SharedPresetBanner />
         <FloatingDock />
       </main>
 
       {/* Deterministic Offline Render Progress & Configuration Modal */}
       <ExportModal />
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <ErrorBoundary>
+      <PresetProvider>
+        <StudioAppShell />
+      </PresetProvider>
+    </ErrorBoundary>
   );
 }

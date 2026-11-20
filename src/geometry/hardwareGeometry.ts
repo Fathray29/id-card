@@ -28,32 +28,62 @@ export const HARDWARE_SPECS = {
   hookWireRadius: 0.068,
 } as const;
 
+/** Exact metal crimp clamp containment envelope (world units = cm) */
+export const CRIMP_SPECS = {
+  bottomY: 6.12,
+  shoulderY: 7.04,
+  topY: 7.36,
+  bottomHalfW: 0.68,
+  shoulderHalfW: 1.20,
+  topHalfW: 1.24,
+  halfDepthZ: 0.34,
+} as const;
+
+/**
+ * Returns the exact outer half-width (in cm) of the metal crimp clamp wall at world height `y`.
+ * Used by lanyardGeometry.ts to smoothly pinch the 2.0 cm woven strap cleanly inside the metal jaws.
+ */
+export function getCrimpOuterHalfWidth(y: number): number {
+  if (y <= CRIMP_SPECS.bottomY) return CRIMP_SPECS.bottomHalfW;
+  if (y >= CRIMP_SPECS.topY) return CRIMP_SPECS.topHalfW;
+  if (y >= CRIMP_SPECS.shoulderY) {
+    const u = (y - CRIMP_SPECS.shoulderY) / (CRIMP_SPECS.topY - CRIMP_SPECS.shoulderY);
+    return CRIMP_SPECS.shoulderHalfW + (CRIMP_SPECS.topHalfW - CRIMP_SPECS.shoulderHalfW) * u;
+  }
+  const u = (y - CRIMP_SPECS.bottomY) / (CRIMP_SPECS.shoulderY - CRIMP_SPECS.bottomY);
+  return CRIMP_SPECS.bottomHalfW + (CRIMP_SPECS.shoulderHalfW - CRIMP_SPECS.bottomHalfW) * u;
+}
+
 export function createHardwareGeometries(): HardwareGeometries {
-  // 1. Trapezoidal Crimp Clamp (2.28 cm outer housing wrapping 2.0 cm overlapping straps, y = 6.12..7.22 cm)
+  // 1. Trapezoidal Crimp Clamp (y = 6.12..7.36 cm, wide 2.48 cm top mouth smoothly tapering to 1.36 cm collar)
+  const centerY = (CRIMP_SPECS.bottomY + CRIMP_SPECS.topY) * 0.5; // 6.74 cm
+  const localTop = CRIMP_SPECS.topY - centerY; // +0.62
+  const localShoulder = CRIMP_SPECS.shoulderY - centerY; // +0.30
+  const localBottom = CRIMP_SPECS.bottomY - centerY; // -0.62
+
   const crimpShape = new THREE.Shape();
-  crimpShape.moveTo(-1.14, 0.55);
-  crimpShape.lineTo(1.14, 0.55);
-  crimpShape.quadraticCurveTo(1.17, 0.35, 0.94, -0.05);
-  crimpShape.lineTo(0.58, -0.55);
-  crimpShape.lineTo(-0.58, -0.55);
-  crimpShape.lineTo(-0.94, -0.05);
-  crimpShape.quadraticCurveTo(-1.17, 0.35, -1.14, 0.55);
+  crimpShape.moveTo(-CRIMP_SPECS.topHalfW, localTop);
+  crimpShape.lineTo(CRIMP_SPECS.topHalfW, localTop);
+  crimpShape.lineTo(CRIMP_SPECS.shoulderHalfW, localShoulder);
+  crimpShape.lineTo(CRIMP_SPECS.bottomHalfW, localBottom);
+  crimpShape.lineTo(-CRIMP_SPECS.bottomHalfW, localBottom);
+  crimpShape.lineTo(-CRIMP_SPECS.shoulderHalfW, localShoulder);
   crimpShape.closePath();
 
   const crimpClamp = new THREE.ExtrudeGeometry(crimpShape, {
-    depth: 0.62,
+    depth: CRIMP_SPECS.halfDepthZ * 2,
     bevelEnabled: true,
-    bevelThickness: 0.05,
+    bevelThickness: 0.045,
     bevelSize: 0.04,
     bevelSegments: 3,
     curveSegments: 16,
   });
-  crimpClamp.translate(0, 0, -0.31);
-  crimpClamp.translate(0, 6.67, 0);
+  crimpClamp.translate(0, 0, -CRIMP_SPECS.halfDepthZ);
+  crimpClamp.translate(0, centerY, 0);
   crimpClamp.computeVertexNormals();
 
-  // Horizontal crimped grip collar at clamp base (y = 6.12 cm)
-  const crimpCollar = new THREE.CylinderGeometry(0.18, 0.18, 1.08, 20);
+  // Horizontal crimped grip collar at clamp base (y = 6.12 cm, matching 1.36 cm bottom jaw width)
+  const crimpCollar = new THREE.CylinderGeometry(0.19, 0.19, 1.28, 22);
   crimpCollar.rotateZ(Math.PI / 2);
   crimpCollar.scale(1, 1, 1.15);
   crimpCollar.translate(0, 6.12, 0);

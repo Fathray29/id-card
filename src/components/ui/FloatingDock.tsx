@@ -9,6 +9,7 @@ import {
   Film,
   FlipHorizontal2,
   RefreshCw,
+  Share2,
   Shield,
   SlidersHorizontal,
   Square,
@@ -41,14 +42,20 @@ export function FloatingDock() {
   const setCameraPreset = useStudioStore((s) => s.setCameraPreset);
   const openExportModal = useStudioStore((s) => s.openExportModal);
   const setMobileDrawerOpen = useStudioStore((s) => s.setMobileDrawerOpen);
+  const setActiveTab = useStudioStore((s) => s.setActiveTab);
 
   const glassSurface = isSoftwareGl
     ? 'bg-zinc-900/95 border border-white/12'
     : 'bg-zinc-900/85 backdrop-blur-xl border border-white/10';
 
+  const openMobilePresets = () => {
+    setActiveTab('presets');
+    setMobileDrawerOpen(true);
+  };
+
   return (
     <>
-      {/* Mobile Compact Top Bar (< 1024px) — clean 2-slot header keeping viewport unobstructed */}
+      {/* Mobile Compact Top Bar (< 1024px) — clean header keeping viewport unobstructed */}
       <div className="lg:hidden pointer-events-none absolute inset-x-0 top-0 z-20 flex items-center justify-between px-3 py-2.5">
         <div className="pointer-events-auto px-3 py-1.5 rounded-xl bg-zinc-900/90 border border-white/10">
           <span className="text-sm font-semibold tracking-tight text-zinc-100 whitespace-nowrap">
@@ -59,7 +66,17 @@ export function FloatingDock() {
         <div className="pointer-events-auto flex items-center gap-1.5">
           <button
             type="button"
+            onClick={openMobilePresets}
+            aria-label="Open Shared Presets"
+            className="min-h-[44px] inline-flex items-center gap-1.5 px-3 rounded-xl text-xs font-medium text-zinc-100 bg-zinc-900/90 border border-white/12 active:scale-[0.98] whitespace-nowrap transition-transform"
+          >
+            <Share2 className="w-3.5 h-3.5 text-indigo-300" />
+            Share
+          </button>
+          <button
+            type="button"
             onClick={() => openExportModal('video')}
+            aria-label="Render 1080p 24fps MP4"
             className="min-h-[44px] inline-flex items-center gap-1.5 px-3.5 rounded-xl text-xs font-semibold text-white bg-indigo-600 active:scale-[0.98] whitespace-nowrap transition-transform"
           >
             <Film className="w-3.5 h-3.5" />
@@ -290,7 +307,7 @@ export function FloatingDock() {
 
             <div className="w-px h-5 bg-white/10 mx-0.5 shrink-0" aria-hidden="true" />
 
-            {/* Offline 12MP Still & 1080p60 Render Actions */}
+            {/* Offline 12MP Still & 1080p24 Render Actions */}
             <button
               type="button"
               onClick={() => openExportModal('still')}
@@ -304,7 +321,7 @@ export function FloatingDock() {
             <button
               type="button"
               onClick={() => openExportModal('video')}
-              aria-label="Render 1080p 60fps MP4"
+              aria-label="Render 1080p 24fps MP4"
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 whitespace-nowrap shrink-0 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
             >
               <Film className="w-3.5 h-3.5" />

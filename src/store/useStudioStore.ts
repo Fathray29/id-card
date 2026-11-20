@@ -12,6 +12,8 @@ import {
   type PerformanceTier,
 } from '../utils/performanceMonitor';
 
+import type { StudioPresetConfigData } from '../utils/presetSerializer';
+
 export type LayerId = 'front' | 'back' | 'lanyard';
 export type FitMode = 'cover' | 'contain' | 'stretch';
 export type CardFinish = 'glossy' | 'matte';
@@ -24,7 +26,7 @@ export type CardCaseStyle =
   | 'slate-aluminum'
   | 'cobalt-frame';
 export type CameraPresetId = 'full' | 'front' | 'back' | 'macro';
-export type SidebarTabId = 'front' | 'back' | 'lanyard' | 'finish';
+export type SidebarTabId = 'front' | 'back' | 'lanyard' | 'finish' | 'presets';
 export type SampleTemplateId = 'tech-vip' | 'corporate-sec' | 'minimal-staff';
 export type ExportMode = 'still' | 'video';
 
@@ -85,9 +87,10 @@ interface StudioState {
   mobileDrawerOpen: boolean;
   setMobileDrawerOpen: (open: boolean) => void;
 
-  // Built-in procedural template
+  // Built-in procedural template & user-generated preset hydration
   activeTemplate: SampleTemplateId;
   applyTemplate: (template: SampleTemplateId) => void;
+  applyPresetConfig: (config: StudioPresetConfigData) => void;
 
   // Layer transforms (Front, Back, Lanyard)
   layers: Record<LayerId, LayerTransform>;
@@ -144,10 +147,6 @@ interface StudioState {
   setVideoPreset: (preset: AnimationPreset) => void;
   videoDurationSec: VideoDurationSec;
   setVideoDurationSec: (sec: VideoDurationSec) => void;
-  motionBlurQuality: MotionBlurQuality;
-  setMotionBlurQuality: (quality: MotionBlurQuality) => void;
-  shutterAngleDeg: ShutterAngleDeg;
-  setShutterAngleDeg: (angle: ShutterAngleDeg) => void;
   motionBlurQuality: MotionBlurQuality;
   setMotionBlurQuality: (quality: MotionBlurQuality) => void;
   shutterAngleDeg: ShutterAngleDeg;
@@ -271,6 +270,65 @@ export const useStudioStore = create<StudioState>((set, get) => ({
         },
       },
     });
+  },
+
+  applyPresetConfig: (config) => {
+    const current = get().layers;
+    set((state) => ({
+      activeTemplate: config.activeTemplate,
+      cardFinish: config.cardFinish,
+      cardCaseEnabled: config.cardCaseEnabled,
+      cardCaseStyle: config.cardCaseStyle,
+      edgePreset: config.edgePreset,
+      hardwareFinish: config.hardwareFinish,
+      hologramEnabled: config.hologramEnabled,
+      hologramIntensity: config.hologramIntensity,
+      studioBackdrop: config.studioBackdrop,
+      showLanyard: config.showLanyard,
+      previewReel: false,
+      isFlipped: false,
+      cameraPreset: 'front',
+      cameraRequestNonce: state.cameraRequestNonce + 1,
+      layers: {
+        front: {
+          fitMode: config.front.fitMode,
+          scale: config.front.scale,
+          offsetX: config.front.offsetX,
+          offsetY: config.front.offsetY,
+          rotation: config.front.rotation,
+          backgroundColor: config.front.backgroundColor,
+          lanyardRepeat: config.front.lanyardRepeat,
+          uploadedImageUrl: config.front.artworkDataUrl || null,
+          uploadedFileName: config.front.uploadedFileName || null,
+          revision: current.front.revision + 1,
+        },
+        back: {
+          fitMode: config.back.fitMode,
+          scale: config.back.scale,
+          offsetX: config.back.offsetX,
+          offsetY: config.back.offsetY,
+          rotation: config.back.rotation,
+          backgroundColor: config.back.backgroundColor,
+          lanyardRepeat: config.back.lanyardRepeat,
+          uploadedImageUrl: config.back.artworkDataUrl || null,
+          uploadedFileName: config.back.uploadedFileName || null,
+          revision: current.back.revision + 1,
+        },
+        lanyard: {
+          fitMode: config.lanyard.fitMode,
+          scale: config.lanyard.scale,
+          offsetX: config.lanyard.offsetX,
+          offsetY: config.lanyard.offsetY,
+          rotation: config.lanyard.rotation,
+          backgroundColor: config.lanyard.backgroundColor,
+          lanyardRepeat: config.lanyard.lanyardRepeat,
+          uploadedImageUrl: config.lanyard.artworkDataUrl || null,
+          uploadedFileName: config.lanyard.uploadedFileName || null,
+          revision: current.lanyard.revision + 1,
+        },
+      },
+    }));
+    get().rigBridge?.triggerFlipImpulse(0);
   },
 
   layers: {
@@ -439,16 +497,12 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   setMotionBlurQuality: (motionBlurQuality) => set({ motionBlurQuality }),
   shutterAngleDeg: 180,
   setShutterAngleDeg: (shutterAngleDeg) => set({ shutterAngleDeg }),
-  motionBlurQuality: 'cinema',
-  setMotionBlurQuality: (motionBlurQuality) => set({ motionBlurQuality }),
-  shutterAngleDeg: 180,
-  setShutterAngleDeg: (shutterAngleDeg) => set({ shutterAngleDeg }),
 
   renderProgress: {
     isRendering: false,
     mode: 'still',
     currentFrame: 0,
-    totalFrames: 960,
+    totalFrames: 384,
     percent: 0,
     stageLabel: 'Ready to render',
     error: null,

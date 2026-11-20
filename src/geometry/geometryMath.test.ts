@@ -8,7 +8,12 @@ import {
   computeApexCrossover,
   createLanyardGeometry,
 } from './lanyardGeometry';
-import { createHardwareGeometries, disposeHardwareGeometries } from './hardwareGeometry';
+import {
+  CRIMP_SPECS,
+  createHardwareGeometries,
+  disposeHardwareGeometries,
+  getCrimpOuterHalfWidth,
+} from './hardwareGeometry';
 import {
   CASE_SPECS,
   createCardCaseGeometries,
@@ -79,7 +84,7 @@ test('CR80 ID card splits into 3 material groups with normalized & back-mirrored
   geo.dispose();
 });
 
-test('Lanyard CatmullRomCurve3 normalizes to exact 80.00 cm (+/- 0.01 cm) with apex Z crossover', () => {
+test('Lanyard CatmullRomCurve3 normalizes to exact 80.00 cm (+/- 0.01 cm) with apex Z crossover and zero crimp poke-through', () => {
   const { totalLength, points } = buildNormalizedLanyardCurve();
   assert.equal(points.length, LANYARD_SPECS.samples + 1);
   assert.ok(
@@ -99,17 +104,44 @@ test('Lanyard CatmullRomCurve3 normalizes to exact 80.00 cm (+/- 0.01 cm) with a
   assert.equal(mid.twistRad, 0);
 
   const { geometry } = createLanyardGeometry();
+  const pos = geometry.getAttribute('position') as THREE.BufferAttribute;
   const uv = geometry.getAttribute('uv') as THREE.BufferAttribute;
   let minU = Infinity;
   let maxU = -Infinity;
   let minV = Infinity;
   let maxV = -Infinity;
-  for (let i = 0; i < uv.count; i++) {
+  let crimpVerticesChecked = 0;
+
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i);
+    const y = pos.getY(i);
+    const z = pos.getZ(i);
+
+    // Every single lanyard vertex inside the metal crimp height must stay strictly inside X, Y, Z jaws!
+    if (y <= CRIMP_SPECS.topY) {
+      crimpVerticesChecked++;
+      assert.ok(
+        y >= CRIMP_SPECS.bottomY + 0.1,
+        `Lanyard vertex poked below crimp base: y=${y} < ${CRIMP_SPECS.bottomY + 0.1}`
+      );
+      const wallHalfW = getCrimpOuterHalfWidth(y);
+      assert.ok(
+        Math.abs(x) <= wallHalfW - 0.08,
+        `Lanyard vertex poked out side of crimp at y=${y}: |x|=${Math.abs(x)} > ${wallHalfW - 0.08}`
+      );
+      assert.ok(
+        Math.abs(z) <= CRIMP_SPECS.halfDepthZ - 0.04,
+        `Lanyard vertex poked out front/back of crimp at y=${y}: |z|=${Math.abs(z)} > ${CRIMP_SPECS.halfDepthZ - 0.04}`
+      );
+    }
+
     minU = Math.min(minU, uv.getX(i));
     maxU = Math.max(maxU, uv.getX(i));
     minV = Math.min(minV, uv.getY(i));
     maxV = Math.max(maxV, uv.getY(i));
   }
+
+  assert.ok(crimpVerticesChecked > 40, 'Expected strap vertices inside the metal crimp clamp');
   assert.ok(minU >= 0 && maxU <= 1.0001);
   assert.ok(minV >= 0 && Math.abs(maxV - 1.0) < 0.01);
   geometry.dispose();

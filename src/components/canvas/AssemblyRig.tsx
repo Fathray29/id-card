@@ -122,7 +122,7 @@ export function AssemblyRig() {
       preset: AnimationPreset,
       frameIndex: number,
       totalFrames: number,
-      fps = 60,
+      fps = 24,
       aspect = 16 / 9
     ) => {
       const next = stepOfflinePresetFrame(

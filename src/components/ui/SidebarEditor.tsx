@@ -24,12 +24,19 @@ import {
 } from '../../store/useStudioStore';
 import { LAYER_DIMENSIONS, renderLayerToCanvas } from '../../utils/texturePipeline';
 import { CARD_SPECS } from '../../geometry/cardGeometry';
+import {
+  computeBackdropOpacity,
+  computeDrawerDragOffset,
+  shouldDismissDrawerOnRelease,
+} from '../../utils/drawerGesture';
+import { PresetsPanel } from './PresetsPanel';
 
 const TABS: Array<{ id: SidebarTabId; label: string; spec: string }> = [
-  { id: 'front', label: 'Front', spec: '5.4×8.56cm' },
-  { id: 'back', label: 'Back', spec: '5.4×8.56cm' },
+  { id: 'front', label: 'Front', spec: '5.4×8.56' },
+  { id: 'back', label: 'Back', spec: '5.4×8.56' },
   { id: 'lanyard', label: 'Lanyard', spec: '80×2cm' },
-  { id: 'finish', label: 'Finish & FX', spec: 'PBR' },
+  { id: 'finish', label: 'Finish', spec: 'PBR/FX' },
+  { id: 'presets', label: 'Presets', spec: 'Share' },
 ];
 
 const TEMPLATES: Array<{
@@ -350,9 +357,166 @@ export function SidebarEditor() {
   const setCameraPreset = useStudioStore((s) => s.setCameraPreset);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const asideRef = useRef<HTMLElement>(null);
+  const scrollBodyRef = useRef<HTMLDivElement>(null);
+
+  // Mobile bottom-sheet swipe-down-to-close state
+  const [drawerDragY, setDrawerDragY] = useState(0);
+  const [isDrawerDragging, setIsDrawerDragging] = useState(false);
+  const swipeStateRef = useRef<{
+    active: boolean;
+    pointerId: number | null;
+    startY: number;
+    lastY: number;
+    lastTime: number;
+    velocity: number;
+    fromScrollBody: boolean;
+  }>({
+    active: false,
+    pointerId: null,
+    startY: 0,
+    lastY: 0,
+    lastTime: 0,
+    velocity: 0,
+    fromScrollBody: false,
+  });
+
+  useEffect(() => {
+    if (!mobileDrawerOpen) {
+      setDrawerDragY(0);
+      setIsDrawerDragging(false);
+      swipeStateRef.current.active = false;
+    }
+  }, [mobileDrawerOpen]);
+
+  const finishDrawerSwipe = (currentOffset: number) => {
+    const velocity = swipeStateRef.current.velocity;
+    swipeStateRef.current.active = false;
+    swipeStateRef.current.pointerId = null;
+    setIsDrawerDragging(false);
+
+    if (shouldDismissDrawerOnRelease(currentOffset, velocity)) {
+      setDrawerDragY(0);
+      setMobileDrawerOpen(false);
+    } else {
+      setDrawerDragY(0);
+    }
+  };
+
+  const handleHeaderPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!mobileDrawerOpen) return;
+    if (typeof window !== 'undefined' && window.innerWidth >= 1024) return;
+    // Allow normal button clicks (e.g., Done button) without hijacking
+    if ((e.target as HTMLElement).closest('button')) return;
+
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const now = performance.now();
+    swipeStateRef.current = {
+      active: true,
+      pointerId: e.pointerId,
+      startY: e.clientY,
+      lastY: e.clientY,
+      lastTime: now,
+      velocity: 0,
+      fromScrollBody: false,
+    };
+    setIsDrawerDragging(true);
+  };
+
+  const handleHeaderPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const st = swipeStateRef.current;
+    if (!st.active || st.pointerId !== e.pointerId) return;
+
+    const now = performance.now();
+    const dt = Math.max(1, now - st.lastTime);
+    const instVel = (e.clientY - st.lastY) / dt;
+    st.velocity = st.velocity * 0.4 + instVel * 0.6;
+    st.lastY = e.clientY;
+    st.lastTime = now;
+
+    setDrawerDragY(computeDrawerDragOffset(e.clientY - st.startY));
+  };
+
+  const handleHeaderPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    const st = swipeStateRef.current;
+    if (!st.active || st.pointerId !== e.pointerId) return;
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      // Ignore if pointer already released
+    }
+    const finalOffset = computeDrawerDragOffset(e.clientY - st.startY);
+    finishDrawerSwipe(finalOffset);
+  };
+
+  // Also allow natural pull-down-to-close from the top of the scrollable body on touch screens
+  const handleBodyTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (!mobileDrawerOpen || e.touches.length !== 1) return;
+    if (typeof window !== 'undefined' && window.innerWidth >= 1024) return;
+    const scrollEl = scrollBodyRef.current;
+    if (!scrollEl || scrollEl.scrollTop > 2) return;
+    if ((e.target as HTMLElement).closest('input, textarea, select, [data-testid^="artboard-preview-"]')) {
+      return;
+    }
+
+    const touch = e.touches[0];
+    const now = performance.now();
+    swipeStateRef.current = {
+      active: true,
+      pointerId: null,
+      startY: touch.clientY,
+      lastY: touch.clientY,
+      lastTime: now,
+      velocity: 0,
+      fromScrollBody: true,
+    };
+  };
+
+  const handleBodyTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+    const st = swipeStateRef.current;
+    if (!st.active || !st.fromScrollBody || e.touches.length !== 1) return;
+    const touch = e.touches[0];
+    const deltaY = touch.clientY - st.startY;
+
+    if (deltaY <= 0) {
+      // User is scrolling downward through content — yield cleanly to native scroll
+      if (!isDrawerDragging) {
+        st.active = false;
+        return;
+      }
+      setDrawerDragY(computeDrawerDragOffset(deltaY));
+      return;
+    }
+
+    const scrollEl = scrollBodyRef.current;
+    if (scrollEl && scrollEl.scrollTop > 2) {
+      st.active = false;
+      return;
+    }
+
+    const now = performance.now();
+    const dt = Math.max(1, now - st.lastTime);
+    const instVel = (touch.clientY - st.lastY) / dt;
+    st.velocity = st.velocity * 0.4 + instVel * 0.6;
+    st.lastY = touch.clientY;
+    st.lastTime = now;
+
+    if (!isDrawerDragging && deltaY > 8) {
+      setIsDrawerDragging(true);
+    }
+    if (deltaY > 8) {
+      setDrawerDragY(computeDrawerDragOffset(deltaY));
+    }
+  };
+
+  const handleBodyTouchEnd = () => {
+    const st = swipeStateRef.current;
+    if (!st.active || !st.fromScrollBody) return;
+    finishDrawerSwipe(drawerDragY);
+  };
 
   const currentLayerId: LayerId | null =
-    activeTab === 'finish' ? null : (activeTab as LayerId);
+    activeTab === 'finish' || activeTab === 'presets' ? null : (activeTab as LayerId);
   const currentLayer = currentLayerId ? layers[currentLayerId] : null;
 
   const handleTabChange = (tab: SidebarTabId) => {
@@ -376,52 +540,81 @@ export function SidebarEditor() {
     e.target.value = '';
   };
 
+  const backdropAlpha = computeBackdropOpacity(
+    drawerDragY,
+    asideRef.current?.offsetHeight || 560
+  );
+
   return (
     <>
       {/* Mobile Backdrop Overlay */}
       {mobileDrawerOpen && (
         <div
-          className="fixed inset-0 z-30 bg-black/60 lg:hidden"
+          className="fixed inset-0 z-30 bg-black/60 lg:hidden transition-opacity duration-150"
+          style={{ opacity: isDrawerDragging ? backdropAlpha : 1 }}
           onClick={() => setMobileDrawerOpen(false)}
           aria-hidden="true"
         />
       )}
 
       <aside
-        className={`fixed inset-x-0 bottom-0 z-40 flex flex-col bg-zinc-900/98 border-t border-white/15 rounded-t-3xl max-h-[82dvh] transition-transform duration-200 ease-out lg:static lg:inset-auto lg:w-[360px] lg:shrink-0 lg:h-full lg:max-h-none lg:rounded-none lg:border-t-0 lg:border-r lg:border-white/10 lg:bg-zinc-900/95 lg:translate-y-0 lg:z-20 ${
+        ref={asideRef}
+        data-testid="studio-sidebar-drawer"
+        data-drawer-open={mobileDrawerOpen ? 'true' : 'false'}
+        style={
+          mobileDrawerOpen && (isDrawerDragging || drawerDragY !== 0)
+            ? { transform: `translateY(${drawerDragY}px)` }
+            : undefined
+        }
+        className={`fixed inset-x-0 bottom-0 z-40 flex flex-col bg-zinc-900/98 border-t border-white/15 rounded-t-3xl max-h-[82dvh] ${
+          isDrawerDragging ? 'transition-none' : 'transition-transform duration-200 ease-out'
+        } lg:static lg:inset-auto lg:w-[360px] lg:shrink-0 lg:h-full lg:max-h-none lg:rounded-none lg:border-t-0 lg:border-r lg:border-white/10 lg:bg-zinc-900/95 lg:translate-y-0 lg:z-20 ${
           mobileDrawerOpen ? 'translate-y-0' : 'translate-y-full lg:translate-y-0'
         }`}
         aria-label="Design and Material Studio Controls"
       >
-        {/* Mobile Grab Handle */}
-        <div className="lg:hidden flex justify-center pt-2.5 pb-1 shrink-0" aria-hidden="true">
-          <div className="w-10 h-1 rounded-full bg-white/20" />
+        {/* Mobile Swipe-Down Drag Handle + Header Zone */}
+        <div
+          data-testid="mobile-drawer-handle"
+          onPointerDown={handleHeaderPointerDown}
+          onPointerMove={handleHeaderPointerMove}
+          onPointerUp={handleHeaderPointerUp}
+          onPointerCancel={handleHeaderPointerUp}
+          className="shrink-0 touch-none lg:touch-auto cursor-grab active:cursor-grabbing lg:cursor-default select-none"
+        >
+          {/* Mobile Grab Handle */}
+          <div
+            className="lg:hidden flex flex-col items-center pt-2.5 pb-1"
+            aria-label="Swipe down to close design menu"
+          >
+            <div className="w-11 h-1.5 rounded-full bg-white/25" />
+          </div>
+
+          {/* Clean Studio Header */}
+          <header className="px-5 py-3 lg:py-4 border-b border-white/10 flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <h1 className="text-[15px] font-semibold tracking-tight text-zinc-100 whitespace-nowrap">
+                BadgeForge 3D
+              </h1>
+              <p className="text-[11px] font-mono tabular-nums text-zinc-400 mt-0.5">
+                CR80 5.4×8.56 cm · Lanyard 80×2 cm
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setMobileDrawerOpen(false)}
+              className="lg:hidden min-h-[40px] px-3.5 rounded-xl bg-indigo-600 text-xs font-semibold text-white whitespace-nowrap shrink-0"
+            >
+              Done
+            </button>
+          </header>
         </div>
 
-        {/* Clean Studio Header */}
-        <header className="px-5 py-3 lg:py-4 border-b border-white/10 flex items-center justify-between gap-3 shrink-0">
-          <div className="min-w-0">
-            <h1 className="text-[15px] font-semibold tracking-tight text-zinc-100 whitespace-nowrap">
-              BadgeForge 3D
-            </h1>
-            <p className="text-[11px] font-mono tabular-nums text-zinc-400 mt-0.5">
-              CR80 5.4×8.56 cm · Lanyard 80×2 cm
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setMobileDrawerOpen(false)}
-            className="lg:hidden min-h-[40px] px-3.5 rounded-xl bg-indigo-600 text-xs font-semibold text-white whitespace-nowrap shrink-0"
-          >
-            Done
-          </button>
-        </header>
-
-        {/* 4-Tab Navigation Bar */}
+        {/* 5-Tab Navigation Bar */}
         <div
           role="tablist"
           aria-label="Customization layers"
-          className="grid grid-cols-4 gap-1 p-2 border-b border-white/10 bg-[#0d1016] shrink-0"
+          className="grid grid-cols-5 gap-1 p-2 border-b border-white/10 bg-[#0d1016] shrink-0"
         >
           {TABS.map((tab) => {
             const isActive = activeTab === tab.id;
@@ -438,10 +631,10 @@ export function SidebarEditor() {
                     : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5 border border-transparent'
                 }`}
               >
-                <span className="text-xs font-semibold leading-tight whitespace-nowrap">
+                <span className="text-[11px] font-semibold leading-tight whitespace-nowrap">
                   {tab.label}
                 </span>
-                <span className="text-[10px] font-mono tabular-nums opacity-70 mt-0.5 whitespace-nowrap">
+                <span className="text-[9px] font-mono tabular-nums opacity-70 mt-0.5 whitespace-nowrap">
                   {tab.spec}
                 </span>
               </button>
@@ -449,9 +642,18 @@ export function SidebarEditor() {
           })}
         </div>
 
-      {/* Scrollable Editor Body */}
-      <div className="flex-1 overflow-y-auto studio-scroll p-4 space-y-5">
-        {currentLayerId && currentLayer ? (
+      {/* Scrollable Editor Body (also supports pull-down-to-close from scrollTop === 0 on mobile) */}
+      <div
+        ref={scrollBodyRef}
+        onTouchStart={handleBodyTouchStart}
+        onTouchMove={handleBodyTouchMove}
+        onTouchEnd={handleBodyTouchEnd}
+        onTouchCancel={handleBodyTouchEnd}
+        className="flex-1 overflow-y-auto studio-scroll p-4 space-y-5"
+      >
+        {activeTab === 'presets' ? (
+          <PresetsPanel />
+        ) : currentLayerId && currentLayer ? (
           <>
             {/* Interactive 2D Ruler & Safe-Zone Artboard */}
             <ArtboardPreview layerId={currentLayerId} />

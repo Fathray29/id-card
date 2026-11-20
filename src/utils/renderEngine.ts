@@ -17,7 +17,7 @@ import {
   type ShutterAngleDeg,
 } from './renderMath';
 
-export const RENDER_FPS = 60;
+export const RENDER_FPS = 24;
 
 export interface StillRenderOptions {
   format: 'png' | 'jpg';
@@ -205,7 +205,7 @@ const RESOLVE_FRAGMENT_SHADER = /* glsl */ `
 /**
  * GPU-accelerated HDR Linear-Space Supersampling Accumulation Pipeline.
  * Powers both:
- *   1. Temporal Supersampling Motion Blur (offline 60fps videos)
+ *   1. Temporal Supersampling Motion Blur (offline 24fps cinema videos)
  *   2. 4x RGSS Spatial Supersampling per tile (12MP artifact-free stills)
  * Performs ONLY ONE `readRenderTargetPixels` readback per completed frame/tile.
  */
@@ -577,14 +577,14 @@ async function selectSupportedVideoCodec(width: number, height: number): Promise
   const candidates: SelectedCodec[] = [
     {
       container: 'mp4',
-      codec: 'avc1.64002a', // H.264 High Profile Level 4.2 (1080p60)
+      codec: 'avc1.640028', // H.264 High Profile Level 4.0 (1080p24 cinema)
       muxerCodec: 'avc',
       mimeType: 'video/mp4',
       extension: 'mp4',
     },
     {
       container: 'mp4',
-      codec: 'avc1.640028', // H.264 High Profile Level 4.0
+      codec: 'avc1.64002a', // H.264 High Profile Level 4.2 fallback
       muxerCodec: 'avc',
       mimeType: 'video/mp4',
       extension: 'mp4',
@@ -636,15 +636,15 @@ async function selectSupportedVideoCodec(width: number, height: number): Promise
     }
   }
 
-  throw new Error('No compatible 1080p60 WebCodecs video encoder (H.264 or VP9/VP8) found.');
+  throw new Error('No compatible 1080p24 WebCodecs video encoder (H.264 or VP9/VP8) found.');
 }
 
 /**
- * Deterministic, frame-by-frame offline 1080p 60fps cinema video renderer with
+ * Deterministic, frame-by-frame offline 1080p 24fps cinema video renderer with
  * GPU Temporal Supersampling Motion Blur (linear-light shutter accumulation + TPDF dithering)
- * and 24 Mbps H.264 / VP9 encoding for seamless, zero-hiccup playback from start to finish.
+ * and 24 Mbps H.264 / VP9 encoding for seamless, filmic playback from start to finish.
  */
-export async function render1080p60Animation(
+export async function render1080p24Animation(
   rigBridge: StudioRigBridge,
   options: VideoRenderOptions
 ): Promise<string> {
@@ -666,7 +666,7 @@ export async function render1080p60Animation(
   options.onProgress(
     0,
     totalFrames,
-    `Initializing ${width}×${height} 60fps (${subSampleCount}× temporal blur, 24 Mbps)...`
+    `Initializing ${width}×${height} 24fps (${subSampleCount}× temporal blur, 24 Mbps)...`
   );
   const selected = await selectSupportedVideoCodec(width, height);
 
@@ -790,8 +790,8 @@ export async function render1080p60Animation(
         duration: frameDurationUs,
       });
 
-      // Tight 0.5-second IDR keyframe interval keeps fast motion-blurred arcs razor-sharp
-      encoder.encode(videoFrame, { keyFrame: frame % 30 === 0 });
+      // 1-second IDR keyframe interval at 24fps keeps fast motion-blurred arcs razor-sharp
+      encoder.encode(videoFrame, { keyFrame: frame % RENDER_FPS === 0 });
       videoFrame.close();
 
       if (frame % 2 === 0 || frame === totalFrames - 1) {
@@ -825,10 +825,10 @@ export async function render1080p60Animation(
 
     const suffix =
       ratioKey === '16:9'
-        ? '1080p60'
+        ? '1080p24'
         : ratioKey === '9:16'
-          ? 'reel-1080x1920-60fps'
-          : 'square-1080-60fps';
+          ? 'reel-1080x1920-24fps'
+          : 'square-1080-24fps';
     const filename = `id-card-showcase-${suffix}.${selected.extension}`;
     const blob = new Blob([finalBuffer], { type: selected.mimeType });
     triggerDownload(blob, filename);
@@ -853,3 +853,6 @@ export async function render1080p60Animation(
     invalidate();
   }
 }
+
+/** Backwards-compatible alias pointing to the 24fps cinema video renderer */
+export const render1080p60Animation = render1080p24Animation;

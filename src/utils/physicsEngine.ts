@@ -565,8 +565,8 @@ export function stepLiveSimulation(
 }
 
 /**
- * Computes exact, stateless deterministic rig + Hermite-spline camera pose for offline 1080p 60fps
- * video rendering AND fractional sub-frame temporal supersampling (motion blur).
+ * Computes exact, stateless deterministic rig + Hermite-spline camera pose for offline 1080p 24fps
+ * cinema video rendering AND fractional sub-frame temporal supersampling (motion blur).
  * Accepts arbitrary floating-point `frameIndex` (e.g., `frame + offsetFrames`) with zero state drift.
  */
 export function stepOfflinePresetFrame(
@@ -574,7 +574,7 @@ export function stepOfflinePresetFrame(
   preset: AnimationPreset,
   frameIndex: number,
   totalFrames: number,
-  fps = 60,
+  fps = 24,
   aspect = 16 / 9
 ): SpringState {
   const safeTotal = Math.max(1, totalFrames);
