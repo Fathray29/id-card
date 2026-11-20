@@ -56,14 +56,20 @@ function createSlotHolePath(
   return hole;
 }
 
+export interface CardGeometryOptions {
+  /** Whether to cut the top 1.4 × 0.3 cm slot punch hole (disabled when enclosed inside a protective case). */
+  includeSlotPunch?: boolean;
+}
+
 /**
- * Builds the procedural vertical CR80 ID card ExtrudeGeometry (5.4 x 8.56 x 0.076 cm)
- * with pill-shaped slot punch at y = +3.78 cm, split into 3 clean material groups:
+ * Builds the procedural vertical CR80 ID card ExtrudeGeometry (5.4 x 8.56 x 0.076 cm),
+ * optionally with the pill-shaped slot punch at y = +3.78 cm, split into 3 clean material groups:
  *   Group 0: Front Face (normal.z > 0.5)   -> u = (x + W/2)/W, v = (y + H/2)/H
  *   Group 1: Back Face  (normal.z < -0.5)  -> u = 1 - (x + W/2)/W, v = (y + H/2)/H
  *   Group 2: PVC Edge & Bevels             -> wrapped edge UVs
  */
-export function createCardGeometry(): THREE.BufferGeometry {
+export function createCardGeometry(options: CardGeometryOptions = {}): THREE.BufferGeometry {
+  const { includeSlotPunch = true } = options;
   const {
     width,
     height,
@@ -86,15 +92,17 @@ export function createCardGeometry(): THREE.BufferGeometry {
 
   const shape = createRoundedRectShape(coreWidth, coreHeight, coreRadius);
 
-  // Expand hole slightly by bevelSize so the finished inner slot aperture is exact 1.4 x 0.3 cm
-  const hole = createSlotHolePath(
-    0,
-    slotCenterY,
-    slotWidth + bevelSize * 2,
-    slotHeight + bevelSize * 2,
-    slotRadius + bevelSize
-  );
-  shape.holes.push(hole);
+  if (includeSlotPunch) {
+    // Expand hole slightly by bevelSize so the finished inner slot aperture is exact 1.4 x 0.3 cm
+    const hole = createSlotHolePath(
+      0,
+      slotCenterY,
+      slotWidth + bevelSize * 2,
+      slotHeight + bevelSize * 2,
+      slotRadius + bevelSize
+    );
+    shape.holes.push(hole);
+  }
 
   const rawGeo = new THREE.ExtrudeGeometry(shape, {
     depth: coreDepth,
@@ -218,10 +226,13 @@ export function createCardGeometry(): THREE.BufferGeometry {
 }
 
 /**
- * Builds a matching flat CR80 face geometry with the slot punch cutout
+ * Builds a matching flat CR80 face geometry (optionally with the slot punch cutout)
  * for the Holographic Security Foil overlay, offset by +0.002 cm from the front cap.
  */
-export function createHologramOverlayGeometry(): THREE.BufferGeometry {
+export function createHologramOverlayGeometry(
+  options: CardGeometryOptions = {}
+): THREE.BufferGeometry {
+  const { includeSlotPunch = true } = options;
   const { width, height, cornerRadius, slotWidth, slotHeight, slotRadius, slotCenterY, bevelSize } =
     CARD_SPECS;
 
@@ -230,14 +241,16 @@ export function createHologramOverlayGeometry(): THREE.BufferGeometry {
     height - bevelSize * 2,
     Math.max(0.01, cornerRadius - bevelSize)
   );
-  const hole = createSlotHolePath(
-    0,
-    slotCenterY,
-    slotWidth + bevelSize * 2,
-    slotHeight + bevelSize * 2,
-    slotRadius + bevelSize
-  );
-  shape.holes.push(hole);
+  if (includeSlotPunch) {
+    const hole = createSlotHolePath(
+      0,
+      slotCenterY,
+      slotWidth + bevelSize * 2,
+      slotHeight + bevelSize * 2,
+      slotRadius + bevelSize
+    );
+    shape.holes.push(hole);
+  }
 
   const geo = new THREE.ShapeGeometry(shape, 24);
   const posAttr = geo.getAttribute('position') as THREE.BufferAttribute;

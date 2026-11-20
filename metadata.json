@@ -2,5 +2,7 @@
   "name": "BadgeForge 3D — ID Card & Lanyard Mockup Studio",
   "description": "Browser-based 3D ID Card & Lanyard Mockup Studio with exact metric CR80 & 80x2cm geometry, procedural fabrics, holographic foil shaders, spring physics, and deterministic 1080p 60fps offline rendering.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

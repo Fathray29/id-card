@@ -31,16 +31,18 @@ test('critically damped oscillator converges cleanly to target flip angle', () =
   assert.ok(Math.abs(omega) < 0.05, `Expected velocity near 0, got ${omega}`);
 });
 
-test('cubicHermite and easeInOutQuint satisfy C2 boundary smoothness', () => {
+test('cubicHermite and easeInOutQuint satisfy C2 boundary smoothness without mid-segment whip', () => {
   assert.equal(cubicHermite(10, 0, 20, 0, 0), 10);
   assert.equal(cubicHermite(10, 0, 20, 0, 1), 20);
   assert.equal(cubicHermite(10, 0, 20, 0, 0.5), 15);
 
-  // Quintic ease-in-out starts & ends with near-zero slope (eliminating harsh transitions)
+  // C2 Quintic smootherstep starts & ends with near-zero slope AND caps mid-segment slope below 1.9x (zero whip)
   assert.equal(easeInOutQuint(0), 0);
   assert.equal(easeInOutQuint(1), 1);
-  assert.ok(easeInOutQuint(0.05) < 0.001, 'Quintic ease-in should accelerate ultra-gently');
-  assert.ok(1 - easeInOutQuint(0.95) < 0.001, 'Quintic ease-out should decelerate ultra-gently');
+  assert.ok(easeInOutQuint(0.05) < 0.002, 'Quintic ease-in should accelerate ultra-gently');
+  assert.ok(1 - easeInOutQuint(0.95) < 0.002, 'Quintic ease-out should decelerate ultra-gently');
+  const midSlope = (easeInOutQuint(0.51) - easeInOutQuint(0.49)) / 0.02;
+  assert.ok(midSlope < 1.95, `Expected gentle peak slope < 1.95x (no whip-pan), got ${midSlope}`);
 });
 
 test('offline simulation stepping is 100% deterministic across independent runs (cinematic & cinematic-360)', () => {
@@ -48,7 +50,7 @@ test('offline simulation stepping is 100% deterministic across independent runs 
     let runA = createInitialSpringState();
     let runB = createInitialSpringState();
 
-    const totalFrames = 600;
+    const totalFrames = 960;
     for (let f = 0; f < totalFrames; f++) {
       runA = stepOfflinePresetFrame(runA, preset, f, totalFrames, 60, 16 / 9);
       runB = stepOfflinePresetFrame(runB, preset, f, totalFrames, 60, 16 / 9);
@@ -66,8 +68,8 @@ test('offline simulation stepping is 100% deterministic across independent runs 
 test('Hermite-spline cinematic showcase cycles Full -> Front -> Back -> Macro (Top to Bottom) -> Full seamlessly', () => {
   const fullStart = evaluateHermiteCameraPath(0.0, 16 / 9);
   const frontMid = evaluateHermiteCameraPath(0.34, 16 / 9);
-  const backMid = evaluateHermiteCameraPath(0.59, 16 / 9);
-  const macroTop = evaluateHermiteCameraPath(0.75, 16 / 9);
+  const backMid = evaluateHermiteCameraPath(0.60, 16 / 9);
+  const macroTop = evaluateHermiteCameraPath(0.80, 16 / 9);
   const macroBottom = evaluateHermiteCameraPath(0.90, 16 / 9);
   const fullEnd = evaluateHermiteCameraPath(1.0, 16 / 9);
 
@@ -81,7 +83,7 @@ test('Hermite-spline cinematic showcase cycles Full -> Front -> Back -> Macro (T
 
   // Act 3: Back hero shot (-Z side) with safe non-clipping Hermite orbit clearance
   assert.ok(backMid.position.z < -14, `Expected Back Z < -14, got ${backMid.position.z}`);
-  for (let u = 0.4; u <= 0.66; u += 0.01) {
+  for (let u = 0.39; u <= 0.66; u += 0.01) {
     const p = evaluateHermiteCameraPath(u, 16 / 9);
     const radialDist = Math.hypot(p.position.x, p.position.z);
     assert.ok(radialDist > 15, `Orbit radius clipped too close (${radialDist}) at u=${u}`);
@@ -115,9 +117,9 @@ test('Hermite-spline cinematic showcase cycles Full -> Front -> Back -> Macro (T
 
 test('Complete Showcase (Cinematic + 360°) plays Cinematic first then seamless 360° orbit', () => {
   const start = evaluateCompleteShowcaseFrame(0.0, 16 / 9);
-  const frontPhase = evaluateCompleteShowcaseFrame(0.22, 16 / 9);
-  const macroPhase = evaluateCompleteShowcaseFrame(0.55, 16 / 9);
-  const spinMid = evaluateCompleteShowcaseFrame(0.825, 16 / 9);
+  const frontPhase = evaluateCompleteShowcaseFrame(0.24, 16 / 9);
+  const macroPhase = evaluateCompleteShowcaseFrame(0.60, 16 / 9);
+  const spinMid = evaluateCompleteShowcaseFrame(0.85, 16 / 9);
   const end = evaluateCompleteShowcaseFrame(1.0, 16 / 9);
 
   // Phase 1 (Cinematic): turntable stays at 0 while camera sweeps Front/Back/Macro

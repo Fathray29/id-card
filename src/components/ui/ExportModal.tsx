@@ -338,10 +338,10 @@ export function ExportModal() {
               {/* Duration / Frame Count */}
               <div className="space-y-2">
                 <span className="text-xs font-medium text-zinc-300">
-                  Duration (Locked 60 fps · Graceful Pacing)
+                  Duration (Locked 60 fps · Slow Eased Pacing)
                 </span>
                 <div className="grid grid-cols-4 gap-1.5">
-                  {([8, 10, 14, 18] as const).map((sec) => (
+                  {([12, 16, 20, 24] as const).map((sec) => (
                     <button
                       key={sec}
                       type="button"

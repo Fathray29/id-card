@@ -50,6 +50,7 @@ function CameraRigController({ isSoftwareGl }: { isSoftwareGl: boolean }) {
   const controlsRef = useRef<CameraControlsImpl>(null);
   const cameraPreset = useStudioStore((s) => s.cameraPreset);
   const cameraRequestNonce = useStudioStore((s) => s.cameraRequestNonce);
+  const cardCaseEnabled = useStudioStore((s) => s.cardCaseEnabled);
   const previewReel = useStudioStore((s) => s.previewReel);
   const isRendering = useStudioStore((s) => s.renderProgress.isRendering);
   const { invalidate, size, camera } = useThree();
@@ -72,20 +73,34 @@ function CameraRigController({ isSoftwareGl }: { isSoftwareGl: boolean }) {
       persp.updateProjectionMatrix();
     }
 
-    // Pull back gracefully on narrow mobile portrait viewports so card & 80cm lanyard fit cleanly
-    const distScale = isPortrait ? (cameraPreset === 'full' ? 1.18 : 1.28) : 1.0;
+    // Pull back gracefully on narrow mobile portrait viewports and when the taller badge case is enabled
+    const portraitScale = isPortrait ? (cameraPreset === 'full' ? 1.18 : 1.28) : 1.0;
+    const isCaseCloseView = cardCaseEnabled && (cameraPreset === 'front' || cameraPreset === 'back');
+    const distScale = portraitScale * (isCaseCloseView ? 1.14 : 1.0);
+    const posYOffset = isCaseCloseView ? -0.35 : 0;
+    const targetYOffset = isCaseCloseView ? -0.75 : 0;
 
     controls.setLookAt(
       pose.position[0] * distScale,
-      pose.position[1],
+      pose.position[1] + posYOffset,
       pose.position[2] * distScale,
       pose.target[0],
-      pose.target[1],
+      pose.target[1] + targetYOffset,
       pose.target[2],
       shouldAnimate
     );
     invalidate();
-  }, [cameraPreset, cameraRequestNonce, previewReel, isRendering, isPortrait, isSoftwareGl, camera, invalidate]);
+  }, [
+    cameraPreset,
+    cameraRequestNonce,
+    cardCaseEnabled,
+    previewReel,
+    isRendering,
+    isPortrait,
+    isSoftwareGl,
+    camera,
+    invalidate,
+  ]);
 
   return (
     <CameraControls
@@ -117,6 +132,8 @@ function SoftwareGlPacer({ isSoftwareGl }: { isSoftwareGl: boolean }) {
   const previewReel = useStudioStore((s) => s.previewReel);
   const isFlipped = useStudioStore((s) => s.isFlipped);
   const showLanyard = useStudioStore((s) => s.showLanyard);
+  const cardCaseEnabled = useStudioStore((s) => s.cardCaseEnabled);
+  const cardCaseStyle = useStudioStore((s) => s.cardCaseStyle);
   const hologramEnabled = useStudioStore((s) => s.hologramEnabled);
   const studioBackdrop = useStudioStore((s) => s.studioBackdrop);
 
@@ -125,7 +142,17 @@ function SoftwareGlPacer({ isSoftwareGl }: { isSoftwareGl: boolean }) {
     if (!isSoftwareGl) return;
     const id = window.setTimeout(() => invalidate(), 16);
     return () => window.clearTimeout(id);
-  }, [isSoftwareGl, isFlipped, showLanyard, hologramEnabled, studioBackdrop, previewReel, invalidate]);
+  }, [
+    isSoftwareGl,
+    isFlipped,
+    showLanyard,
+    cardCaseEnabled,
+    cardCaseStyle,
+    hologramEnabled,
+    studioBackdrop,
+    previewReel,
+    invalidate,
+  ]);
 
   // Step flip animation cleanly on software GL
   useEffect(() => {
@@ -262,6 +289,7 @@ function StudioBackdropController() {
 export function StudioScene() {
   const isSoftwareGl = useMemo(() => detectSoftwareWebGL(), []);
   const studioBackdrop = useStudioStore((s) => s.studioBackdrop);
+  const cardCaseEnabled = useStudioStore((s) => s.cardCaseEnabled);
   const performanceTier = useStudioStore((s) => s.performanceTier);
   const isLightBackdrop = studioBackdrop === 'studio-light';
   const shadowsEnabled = !isSoftwareGl && performanceTier.highFidelityShadows;
@@ -399,11 +427,11 @@ export function StudioScene() {
         {/* Soft studio floor ContactShadows (automatically disabled on mobile <45fps) */}
         {performanceTier.highFidelityShadows && (
           <ContactShadows
-            position={[0, -5.5, 0]}
+            position={[0, cardCaseEnabled ? -6.5 : -5.5, 0]}
             opacity={isLightBackdrop ? 0.35 : 0.45}
             scale={25}
             blur={2.2}
-            far={15}
+            far={16}
             resolution={isSoftwareGl || performanceTier.isMobileDevice ? 256 : 512}
             frames={1}
             color={isLightBackdrop ? '#1e293b' : '#000000'}

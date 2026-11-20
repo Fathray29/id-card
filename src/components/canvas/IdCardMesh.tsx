@@ -33,11 +33,23 @@ export function IdCardMesh() {
   const edgePreset = useStudioStore((s) => s.edgePreset);
   const hologramEnabled = useStudioStore((s) => s.hologramEnabled);
   const hologramIntensity = useStudioStore((s) => s.hologramIntensity);
+  const cardCaseEnabled = useStudioStore((s) => s.cardCaseEnabled);
   const highFidelityShadows = useStudioStore((s) => s.performanceTier.highFidelityShadows);
 
-  // Procedural CR80 geometry & matching hologram overlay geometry
-  const cardGeometry = useMemo(() => createCardGeometry(), []);
-  const hologramGeometry = useMemo(() => createHologramOverlayGeometry(), []);
+  // Pre-build both bare (punched) and in-case (solid unpunched) CR80 geometries for instant toggling
+  const geometries = useMemo(
+    () => ({
+      punchedCard: createCardGeometry({ includeSlotPunch: true }),
+      solidCard: createCardGeometry({ includeSlotPunch: false }),
+      punchedHologram: createHologramOverlayGeometry({ includeSlotPunch: true }),
+      solidHologram: createHologramOverlayGeometry({ includeSlotPunch: false }),
+    }),
+    []
+  );
+  const cardGeometry = cardCaseEnabled ? geometries.solidCard : geometries.punchedCard;
+  const hologramGeometry = cardCaseEnabled
+    ? geometries.solidHologram
+    : geometries.punchedHologram;
   const hologramMaterial = useMemo(() => createHologramMaterial(0.72), []);
 
   // Dedicated offscreen canvases & CanvasTextures (allocated once, updated strictly on revision change)
@@ -104,14 +116,16 @@ export function IdCardMesh() {
   // Dispose GPU resources cleanly on unmount
   useEffect(() => {
     return () => {
-      cardGeometry.dispose();
-      hologramGeometry.dispose();
+      geometries.punchedCard.dispose();
+      geometries.solidCard.dispose();
+      geometries.punchedHologram.dispose();
+      geometries.solidHologram.dispose();
       hologramMaterial.dispose();
       frontTexture.dispose();
       backTexture.dispose();
       materials.forEach((m) => m.dispose());
     };
-  }, [cardGeometry, hologramGeometry, hologramMaterial, frontTexture, backTexture, materials]);
+  }, [geometries, hologramMaterial, frontTexture, backTexture, materials]);
 
   // Cache loaded HTMLImageElements so slider drags never re-decode data URLs
   const frontImgCache = useRef<{ url: string | null; img: HTMLImageElement | null }>({

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
 import { useFrame, useThree } from '@react-three/fiber';
 import { CARD_SPECS } from '../../geometry/cardGeometry';
+import { CASE_SPECS } from '../../geometry/caseGeometry';
 import { buildNormalizedLanyardCurve } from '../../geometry/lanyardGeometry';
 import {
   createInitialSpringState,
@@ -11,6 +12,7 @@ import {
   type SpringState,
 } from '../../utils/physicsEngine';
 import { useStudioStore } from '../../store/useStudioStore';
+import { CardCaseMesh } from './CardCaseMesh';
 import { IdCardMesh } from './IdCardMesh';
 import { LanyardMesh, SwivelClaspMesh } from './LanyardMesh';
 
@@ -29,6 +31,7 @@ import { LanyardMesh, SwivelClaspMesh } from './LanyardMesh';
 export function AssemblyRig() {
   const { gl, scene, camera, invalidate } = useThree();
   const showLanyard = useStudioStore((s) => s.showLanyard);
+  const cardCaseEnabled = useStudioStore((s) => s.cardCaseEnabled);
   const registerRigBridge = useStudioStore((s) => s.registerRigBridge);
 
   const neckPivotY = useMemo(() => {
@@ -191,11 +194,14 @@ export function AssemblyRig() {
       <group ref={neckPivotRef} position={[0, neckPivotY, 0]} name="neck-pivot">
         {showLanyard && <LanyardMesh neckPivotY={neckPivotY} />}
 
-        {/* Swivel Clasp & Card Pivot at exact slot punch elevation (world y = +3.78 cm) */}
+        {/* Swivel Clasp & Card/Case Pivot at exact slot punch elevation (world y = +3.78 cm) */}
         <group ref={swivelClaspRef} position={[0, hingeLocalY, 0]} name="swivel-clasp-pivot">
           {showLanyard && <SwivelClaspMesh pivotOffsetY={CARD_SPECS.slotCenterY} />}
           <group ref={cardPendulumRef} name="card-pendulum-pivot">
-            <IdCardMesh />
+            {cardCaseEnabled && <CardCaseMesh />}
+            <group position={[0, cardCaseEnabled ? -CASE_SPECS.cardDropY : 0, 0]}>
+              <IdCardMesh />
+            </group>
           </group>
         </group>
       </group>

@@ -4,6 +4,7 @@ import {
   Layers,
   RotateCcw,
   RotateCw,
+  Shield,
   ShieldCheck,
   Sliders,
   Sparkles,
@@ -12,6 +13,7 @@ import {
 } from 'lucide-react';
 import {
   useStudioStore,
+  type CardCaseStyle,
   type CardFinish,
   type EdgeMaterialPreset,
   type FitMode,
@@ -77,6 +79,7 @@ function ArtboardPreview({ layerId }: { layerId: LayerId }) {
     origOffsetX: number;
     origOffsetY: number;
   }>({ active: false, startX: 0, startY: 0, origOffsetX: 0, origOffsetY: 0 });
+  const cardCaseEnabled = useStudioStore((s) => s.cardCaseEnabled);
   const [isDragging, setIsDragging] = useState(false);
 
   useEffect(() => {
@@ -278,8 +281,8 @@ function ArtboardPreview({ layerId }: { layerId: LayerId }) {
               }
             />
 
-            {/* Exact 1.4 x 0.3 cm Slot Punch Cutout Warning Zone (Card Front & Back) */}
-            {isCard && (
+            {/* Exact 1.4 x 0.3 cm Slot Punch Cutout Warning Zone (Bare Card Front & Back only) */}
+            {isCard && !cardCaseEnabled && (
               <div
                 className="pointer-events-none absolute left-1/2 -translate-x-1/2 rounded-full border border-rose-400/90 bg-black/65 shadow-[0_0_0_1px_rgba(244,63,94,0.3)]"
                 style={{
@@ -300,10 +303,14 @@ function ArtboardPreview({ layerId }: { layerId: LayerId }) {
           2mm safe zone
         </span>
         {isCard ? (
-          <span className="flex items-center gap-1.5">
-            <span className="inline-block w-3 h-1.5 rounded-full border border-rose-400 bg-black/70" />
-            1.4×0.3cm punch
-          </span>
+          cardCaseEnabled ? (
+            <span className="text-zinc-400">Solid card (in case)</span>
+          ) : (
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block w-3 h-1.5 rounded-full border border-rose-400 bg-black/70" />
+              1.4×0.3cm punch
+            </span>
+          )
         ) : (
           <span className="text-zinc-500">Drag preview to pan</span>
         )}
@@ -326,6 +333,10 @@ export function SidebarEditor() {
 
   const cardFinish = useStudioStore((s) => s.cardFinish);
   const setCardFinish = useStudioStore((s) => s.setCardFinish);
+  const cardCaseEnabled = useStudioStore((s) => s.cardCaseEnabled);
+  const setCardCaseEnabled = useStudioStore((s) => s.setCardCaseEnabled);
+  const cardCaseStyle = useStudioStore((s) => s.cardCaseStyle);
+  const setCardCaseStyle = useStudioStore((s) => s.setCardCaseStyle);
   const edgePreset = useStudioStore((s) => s.edgePreset);
   const setEdgePreset = useStudioStore((s) => s.setEdgePreset);
   const hardwareFinish = useStudioStore((s) => s.hardwareFinish);
@@ -733,8 +744,70 @@ export function SidebarEditor() {
         ) : (
           /* FINISH & FX TAB */
           <div className="space-y-5">
+            {/* Protective Badge Holder / Case Option */}
+            <section className="space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <h2 className="text-xs font-semibold text-zinc-200 flex items-center gap-1.5">
+                    <Shield className="w-3.5 h-3.5 text-indigo-400" />
+                    Protective Badge Case
+                  </h2>
+                  <p className="text-[11px] text-zinc-400 mt-0.5">
+                    Rigid framed holder with clear polycarbonate window
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={cardCaseEnabled}
+                  aria-label="Toggle protective badge case"
+                  onClick={() => setCardCaseEnabled(!cardCaseEnabled)}
+                  className={`relative w-10 h-5 rounded-full transition-colors shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${
+                    cardCaseEnabled ? 'bg-indigo-500' : 'bg-zinc-700'
+                  }`}
+                >
+                  <span
+                    className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform ${
+                      cardCaseEnabled ? 'translate-x-5' : 'translate-x-0'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {cardCaseEnabled && (
+                <div className="grid grid-cols-2 gap-1.5">
+                  {(
+                    [
+                      { id: 'matte-obsidian', label: 'Matte Obsidian', color: '#1b1e26' },
+                      { id: 'frosted-clear', label: 'Frosted Clear', color: '#cbd5e1' },
+                      { id: 'glacier-white', label: 'Glacier White', color: '#f1f5f9' },
+                      { id: 'slate-aluminum', label: 'Anodized Alloy', color: '#b8c2d1' },
+                      { id: 'cobalt-frame', label: 'Cobalt Frame', color: '#1d4ed8' },
+                    ] as Array<{ id: CardCaseStyle; label: string; color: string }>
+                  ).map((style) => (
+                    <button
+                      key={style.id}
+                      type="button"
+                      onClick={() => setCardCaseStyle(style.id)}
+                      className={`flex items-center gap-2 p-2 rounded-lg border text-xs font-medium transition-colors ${
+                        cardCaseStyle === style.id
+                          ? 'bg-indigo-600/20 border-indigo-400/50 text-zinc-100'
+                          : 'bg-[#0b0e14] border-white/10 text-zinc-300 hover:border-white/20'
+                      }`}
+                    >
+                      <span
+                        className="w-3.5 h-3.5 rounded-sm border border-white/25 shrink-0"
+                        style={{ backgroundColor: style.color }}
+                      />
+                      <span className="truncate">{style.label}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </section>
+
             {/* Card PVC Surface Finish */}
-            <section className="space-y-2.5">
+            <section className="space-y-2.5 pt-3 border-t border-white/10">
               <h2 className="text-xs font-semibold text-zinc-200 flex items-center gap-1.5">
                 <Layers className="w-3.5 h-3.5 text-indigo-400" />
                 PVC Surface Finish

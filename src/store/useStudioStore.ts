@@ -16,6 +16,12 @@ export type FitMode = 'cover' | 'contain' | 'stretch';
 export type CardFinish = 'glossy' | 'matte';
 export type EdgeMaterialPreset = 'white' | 'black' | 'gold' | 'silver';
 export type HardwareFinish = 'brushed-steel' | 'matte-black' | 'champagne-gold';
+export type CardCaseStyle =
+  | 'matte-obsidian'
+  | 'frosted-clear'
+  | 'glacier-white'
+  | 'slate-aluminum'
+  | 'cobalt-frame';
 export type CameraPresetId = 'full' | 'front' | 'back' | 'macro';
 export type SidebarTabId = 'front' | 'back' | 'lanyard' | 'finish';
 export type SampleTemplateId = 'tech-vip' | 'corporate-sec' | 'minimal-staff';
@@ -91,6 +97,11 @@ interface StudioState {
   // Materials & FX
   cardFinish: CardFinish;
   setCardFinish: (finish: CardFinish) => void;
+  cardCaseEnabled: boolean;
+  toggleCardCase: () => void;
+  setCardCaseEnabled: (enabled: boolean) => void;
+  cardCaseStyle: CardCaseStyle;
+  setCardCaseStyle: (style: CardCaseStyle) => void;
   edgePreset: EdgeMaterialPreset;
   setEdgePreset: (edge: EdgeMaterialPreset) => void;
   hardwareFinish: HardwareFinish;
@@ -308,6 +319,12 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   cardFinish: 'glossy',
   setCardFinish: (cardFinish) => set({ cardFinish }),
 
+  cardCaseEnabled: false,
+  toggleCardCase: () => set((state) => ({ cardCaseEnabled: !state.cardCaseEnabled })),
+  setCardCaseEnabled: (cardCaseEnabled) => set({ cardCaseEnabled }),
+  cardCaseStyle: 'matte-obsidian',
+  setCardCaseStyle: (cardCaseStyle) => set({ cardCaseStyle }),
+
   edgePreset: 'black',
   setEdgePreset: (edgePreset) => set({ edgePreset }),
 
@@ -403,18 +420,18 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     set((state) => ({
       videoPreset,
       videoDurationSec:
-        videoPreset === 'cinematic-360' && state.videoDurationSec < 14
-          ? 14
+        videoPreset === 'cinematic-360' && state.videoDurationSec < 24
+          ? 24
           : state.videoDurationSec,
     })),
-  videoDurationSec: 10,
+  videoDurationSec: 16,
   setVideoDurationSec: (videoDurationSec) => set({ videoDurationSec }),
 
   renderProgress: {
     isRendering: false,
     mode: 'still',
     currentFrame: 0,
-    totalFrames: 600,
+    totalFrames: 960,
     percent: 0,
     stageLabel: 'Ready to render',
     error: null,

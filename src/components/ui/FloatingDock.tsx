@@ -9,6 +9,7 @@ import {
   Film,
   FlipHorizontal2,
   RefreshCw,
+  Shield,
   SlidersHorizontal,
   Square,
 } from 'lucide-react';
@@ -30,6 +31,8 @@ export function FloatingDock() {
   const toggleFlip = useStudioStore((s) => s.toggleFlip);
   const showLanyard = useStudioStore((s) => s.showLanyard);
   const toggleLanyard = useStudioStore((s) => s.toggleLanyard);
+  const cardCaseEnabled = useStudioStore((s) => s.cardCaseEnabled);
+  const toggleCardCase = useStudioStore((s) => s.toggleCardCase);
   const autoSpin = useStudioStore((s) => s.autoSpin);
   const toggleAutoSpin = useStudioStore((s) => s.toggleAutoSpin);
   const previewReel = useStudioStore((s) => s.previewReel);
@@ -152,7 +155,7 @@ export function FloatingDock() {
       </div>
 
       {/* Desktop Unified Floating Control Dock (>= 1024px) */}
-      <div className="hidden lg:flex pointer-events-none absolute inset-x-0 bottom-5 z-20 flex-col items-center px-4">
+      <div className="hidden lg:flex pointer-events-none absolute inset-x-0 bottom-4 z-20 flex-col items-center px-3">
         <button
           type="button"
           onClick={() => setCollapsed((c) => !c)}
@@ -175,13 +178,14 @@ export function FloatingDock() {
         {!collapsed && (
           <nav
             aria-label="Viewport and Render Controls"
-            className={`pointer-events-auto flex flex-wrap items-center justify-center gap-1.5 p-1.5 rounded-2xl shadow-2xl max-w-[calc(100vw-392px)] ${glassSurface}`}
+            className={`pointer-events-auto flex flex-nowrap items-center gap-1 p-1.5 rounded-2xl shadow-2xl max-w-[calc(100vw-384px)] overflow-x-auto ${glassSurface}`}
           >
             <button
               type="button"
               onClick={togglePreviewReel}
               aria-pressed={previewReel}
-              className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap shrink-0 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${
+              aria-label={previewReel ? 'Stop Cinematic Reel' : 'Preview Cinematic Reel'}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap shrink-0 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${
                 previewReel
                   ? 'bg-emerald-500/20 text-emerald-200 border border-emerald-400/50'
                   : 'text-zinc-100 hover:bg-white/10 border border-transparent'
@@ -192,42 +196,60 @@ export function FloatingDock() {
               ) : (
                 <Clapperboard className="w-3.5 h-3.5 text-indigo-300" />
               )}
-              {previewReel ? 'Stop Reel' : 'Preview Reel'}
+              {previewReel ? 'Stop' : 'Reel'}
             </button>
 
             <button
               type="button"
               onClick={toggleFlip}
               aria-pressed={isFlipped}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-xs font-medium whitespace-nowrap shrink-0 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${
+              aria-label="Flip 180 degrees"
+              className={`inline-flex items-center gap-1.5 px-2 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap shrink-0 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${
                 isFlipped
                   ? 'bg-indigo-600/25 text-indigo-200 border border-indigo-400/40'
                   : 'text-zinc-200 hover:bg-white/10 border border-transparent'
               }`}
             >
               <FlipHorizontal2 className="w-3.5 h-3.5" />
-              Flip 180°
+              Flip
             </button>
 
             <button
               type="button"
               onClick={toggleLanyard}
               aria-pressed={showLanyard}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-xs font-medium whitespace-nowrap shrink-0 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${
+              aria-label={showLanyard ? 'Hide Lanyard' : 'Show Lanyard'}
+              className={`inline-flex items-center gap-1.5 px-2 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap shrink-0 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${
                 !showLanyard
                   ? 'bg-amber-500/15 text-amber-200 border border-amber-400/40'
                   : 'text-zinc-200 hover:bg-white/10 border border-transparent'
               }`}
             >
               {showLanyard ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-              {showLanyard ? 'Hide Lanyard' : 'Show Lanyard'}
+              Lanyard
+            </button>
+
+            <button
+              type="button"
+              onClick={toggleCardCase}
+              aria-pressed={cardCaseEnabled}
+              aria-label={cardCaseEnabled ? 'Disable Protective Badge Case' : 'Enable Protective Badge Case'}
+              className={`inline-flex items-center gap-1.5 px-2 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap shrink-0 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${
+                cardCaseEnabled
+                  ? 'bg-indigo-600/25 text-indigo-200 border border-indigo-400/45'
+                  : 'text-zinc-200 hover:bg-white/10 border border-transparent'
+              }`}
+            >
+              <Shield className="w-3.5 h-3.5" />
+              Case
             </button>
 
             <button
               type="button"
               onClick={toggleAutoSpin}
               aria-pressed={autoSpin}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-2 rounded-xl text-xs font-medium whitespace-nowrap shrink-0 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${
+              aria-label="Toggle Turntable Spin"
+              className={`inline-flex items-center gap-1.5 px-2 py-1.5 rounded-xl text-xs font-medium whitespace-nowrap shrink-0 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${
                 autoSpin
                   ? 'bg-emerald-500/20 text-emerald-200 border border-emerald-400/40'
                   : 'text-zinc-200 hover:bg-white/10 border border-transparent'
@@ -237,11 +259,11 @@ export function FloatingDock() {
               Spin
             </button>
 
-            <div className="w-px h-5 bg-white/10 mx-0.5 hidden sm:block" aria-hidden="true" />
+            <div className="w-px h-5 bg-white/10 mx-0.5 shrink-0" aria-hidden="true" />
 
             {/* Camera Presets (1-4) */}
             <div
-              className="flex items-center gap-0.5 p-0.5 rounded-xl bg-black/35 border border-white/10"
+              className="flex items-center gap-0.5 p-0.5 rounded-xl bg-black/35 border border-white/10 shrink-0"
               role="group"
               aria-label="Camera Presets"
             >
@@ -253,7 +275,7 @@ export function FloatingDock() {
                     type="button"
                     onClick={() => setCameraPreset(cam.id)}
                     aria-pressed={active}
-                    className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap shrink-0 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${
+                    className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium whitespace-nowrap shrink-0 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${
                       active
                         ? 'bg-zinc-100 text-zinc-950'
                         : 'text-zinc-300 hover:text-white hover:bg-white/10'
@@ -266,13 +288,14 @@ export function FloatingDock() {
               })}
             </div>
 
-            <div className="w-px h-5 bg-white/10 mx-0.5 hidden sm:block" aria-hidden="true" />
+            <div className="w-px h-5 bg-white/10 mx-0.5 shrink-0" aria-hidden="true" />
 
             {/* Offline 1080p Render Actions */}
             <button
               type="button"
               onClick={() => openExportModal('still')}
-              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium text-zinc-100 bg-white/10 hover:bg-white/15 border border-white/10 whitespace-nowrap shrink-0 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+              aria-label="Export 1080p Still Image"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-zinc-100 bg-white/10 hover:bg-white/15 border border-white/10 whitespace-nowrap shrink-0 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
             >
               <Camera className="w-3.5 h-3.5 text-emerald-400" />
               1080p Still
@@ -281,10 +304,11 @@ export function FloatingDock() {
             <button
               type="button"
               onClick={() => openExportModal('video')}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 whitespace-nowrap shrink-0 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
+              aria-label="Render 1080p 60fps MP4"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500 whitespace-nowrap shrink-0 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
             >
               <Film className="w-3.5 h-3.5" />
-              Render 1080p 60fps MP4
+              Render MP4
             </button>
           </nav>
         )}

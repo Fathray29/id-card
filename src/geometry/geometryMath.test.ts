@@ -9,6 +9,11 @@ import {
   createLanyardGeometry,
 } from './lanyardGeometry';
 import { createHardwareGeometries, disposeHardwareGeometries } from './hardwareGeometry';
+import {
+  CASE_SPECS,
+  createCardCaseGeometries,
+  disposeCardCaseGeometries,
+} from './caseGeometry';
 
 test('CR80 ID card geometry has exact 5.4 x 8.56 x 0.076 cm bounding dimensions', () => {
   const geo = createCardGeometry();
@@ -140,3 +145,58 @@ test('Hardware geometries build all 7 metallic parts with snugly seated clasp ho
 
   disposeHardwareGeometries(hw);
 });
+
+test('Protective 3D badge case aligns top header lug with clasp hook and frames CR80 card cleanly', () => {
+  const caseGeos = createCardCaseGeometries();
+  assert.ok(caseGeos.caseFrame.attributes.position.count > 0);
+  assert.ok(caseGeos.caseHeaderTab.attributes.position.count > 0);
+  assert.ok(caseGeos.caseWindowLens.attributes.position.count > 0);
+
+  caseGeos.caseFrame.computeBoundingBox();
+  const frameBb = caseGeos.caseFrame.boundingBox!;
+  const frameSize = new THREE.Vector3();
+  frameBb.getSize(frameSize);
+  assert.ok(frameSize.x > CARD_SPECS.width + 0.6, 'Case frame should surround 5.4 cm card width');
+  assert.ok(frameSize.z > CARD_SPECS.thickness + 0.15, 'Case frame should enclose card thickness');
+
+  // Header tab top edge aligns cleanly with bare card top (y = 4.28 cm) so clasp body clears by 0.10 cm
+  caseGeos.caseHeaderTab.computeBoundingBox();
+  const tabBb = caseGeos.caseHeaderTab.boundingBox!;
+  assert.ok(Math.abs(tabBb.max.y - CASE_SPECS.headerTopY) < 0.03);
+  assert.ok(tabBb.max.z < 0.07, 'Header tab thickness must fit inside clasp hook loop clearance');
+
+  disposeCardCaseGeometries(caseGeos);
+});
+
+test('Solid CR80 card (in-case mode) preserves exact 5.4 x 8.56 x 0.076 cm bounds with zero top slot hole', () => {
+  const punched = createCardGeometry({ includeSlotPunch: true });
+  const solid = createCardGeometry({ includeSlotPunch: false });
+
+  solid.computeBoundingBox();
+  const size = new THREE.Vector3();
+  solid.boundingBox!.getSize(size);
+  assert.ok(Math.abs(size.x - CARD_SPECS.width) < 0.02);
+  assert.ok(Math.abs(size.y - CARD_SPECS.height) < 0.02);
+  assert.ok(Math.abs(size.z - CARD_SPECS.thickness) < 0.005);
+
+  // Solid card has significantly fewer edge/slot triangles than the punched card
+  assert.ok(
+    solid.groups[2].count < punched.groups[2].count,
+    'Solid card should not contain interior slot punch bevel/edge vertices'
+  );
+
+  // Verify no edge/bevel vertices sit inside the interior slot punch zone (|x| < 0.8, y in [3.55, 4.00])
+  const pos = solid.getAttribute('position') as THREE.BufferAttribute;
+  const edgeStart = solid.groups[2].start;
+  const edgeEnd = edgeStart + solid.groups[2].count;
+  for (let i = edgeStart; i < edgeEnd; i++) {
+    const x = pos.getX(i);
+    const y = pos.getY(i);
+    const insideSlotZone = Math.abs(x) < 0.8 && y > 3.55 && y < 4.0;
+    assert.equal(insideSlotZone, false, `Found unexpected interior slot vertex at (${x}, ${y})`);
+  }
+
+  punched.dispose();
+  solid.dispose();
+});
+
