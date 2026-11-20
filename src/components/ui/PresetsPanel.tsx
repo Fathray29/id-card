@@ -2,12 +2,15 @@ import React, { useState } from 'react';
 import {
   Check,
   ExternalLink,
+  Eye,
+  EyeOff,
   Globe,
   Link2,
   Loader2,
   Lock,
   LogIn,
   LogOut,
+  Mail,
   Plus,
   RefreshCw,
   Share2,
@@ -15,6 +18,8 @@ import {
   ShieldAlert,
   Sparkles,
   Trash2,
+  User as UserIcon,
+  UserPlus,
 } from 'lucide-react';
 import { usePresets } from '../../context/PresetProvider';
 import {
@@ -60,7 +65,8 @@ export function PresetsPanel() {
     presetsError,
     shareOriginMode,
     setShareOriginMode,
-    signIn,
+    register,
+    login,
     signOut,
     loadPreset,
     loadPresetByLinkOrId,
@@ -69,6 +75,14 @@ export function PresetsPanel() {
     getShareUrl,
   } = usePresets();
 
+  // Email & password auth state
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('register');
+  const [emailInput, setEmailInput] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
+  const [displayNameInput, setDisplayNameInput] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+
+  // Preset save state
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [isPublic, setIsPublic] = useState(true);
@@ -98,12 +112,40 @@ export function PresetsPanel() {
     }, 2200);
   };
 
-  const handleSignIn = async () => {
+  const handleAuthSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     setFormError(null);
+    const trimmedEmail = emailInput.trim();
+    if (!trimmedEmail || !passwordInput) {
+      setFormError('Enter your email address and password.');
+      return;
+    }
+    if (authMode === 'register' && passwordInput.length < 8) {
+      setFormError('Password must be at least 8 characters long.');
+      return;
+    }
     try {
-      await signIn();
+      if (authMode === 'register') {
+        await register({
+          email: trimmedEmail,
+          password: passwordInput,
+          displayName: displayNameInput.trim(),
+        });
+      } else {
+        await login({
+          email: trimmedEmail,
+          password: passwordInput,
+        });
+      }
+      setPasswordInput('');
     } catch (err) {
-      setFormError(err instanceof Error ? err.message : 'Google sign-in failed.');
+      setFormError(
+        err instanceof Error
+          ? err.message
+          : authMode === 'register'
+            ? 'Could not create account.'
+            : 'Invalid email or password.'
+      );
     }
   };
 
@@ -147,12 +189,7 @@ export function PresetsPanel() {
       setDescription('');
       setGalleryTab('mine');
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Could not save preset.';
-      setFormError(
-        msg.includes('Quota exceeded')
-          ? 'Daily database quota exceeded. Please try again tomorrow.'
-          : msg
-      );
+      setFormError(err instanceof Error ? err.message : 'Could not save preset.');
     } finally {
       setSaving(false);
     }
@@ -355,7 +392,11 @@ export function PresetsPanel() {
           {user && (
             <button
               type="button"
-              onClick={signOut}
+              onClick={() => {
+                setSavedLink(null);
+                setFormError(null);
+                void signOut();
+              }}
               disabled={authBusy}
               className="inline-flex items-center gap-1 text-[11px] text-zinc-400 hover:text-zinc-200 transition-colors"
               aria-label="Sign out"
@@ -410,19 +451,123 @@ export function PresetsPanel() {
         </div>
 
         {!user ? (
-          <button
-            type="button"
-            onClick={handleSignIn}
-            disabled={authBusy}
-            className="w-full min-h-[42px] inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 px-3.5 py-2 text-xs font-semibold text-white transition-colors"
-          >
-            {authBusy ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <LogIn className="w-3.5 h-3.5" />
+          <form onSubmit={handleAuthSubmit} className="space-y-2.5 pt-0.5">
+            <div className="grid grid-cols-2 gap-1 p-0.5 rounded-lg bg-zinc-950 border border-white/10">
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMode('register');
+                  setFormError(null);
+                }}
+                className={`min-h-[30px] rounded-md text-[11px] font-semibold transition-colors ${
+                  authMode === 'register'
+                    ? 'bg-indigo-600 text-white'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                Create Account
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMode('login');
+                  setFormError(null);
+                }}
+                className={`min-h-[30px] rounded-md text-[11px] font-semibold transition-colors ${
+                  authMode === 'login'
+                    ? 'bg-indigo-600 text-white'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                Sign In
+              </button>
+            </div>
+
+            {authMode === 'register' && (
+              <div className="relative">
+                <label htmlFor="auth-display-name" className="sr-only">
+                  Creator name
+                </label>
+                <UserIcon className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <input
+                  id="auth-display-name"
+                  type="text"
+                  autoComplete="name"
+                  maxLength={PRESET_LIMITS.authorNameMaxLength}
+                  value={displayNameInput}
+                  onChange={(e) => setDisplayNameInput(e.target.value)}
+                  placeholder="Creator display name"
+                  className="w-full rounded-lg bg-zinc-900 border border-white/15 pl-8 pr-3 py-2 text-xs text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-400"
+                />
+              </div>
             )}
-            Sign in with Google to Save &amp; Share
-          </button>
+
+            <div className="relative">
+              <label htmlFor="auth-email" className="sr-only">
+                Email address
+              </label>
+              <Mail className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                id="auth-email"
+                type="email"
+                required
+                autoComplete="email"
+                value={emailInput}
+                onChange={(e) => setEmailInput(e.target.value)}
+                placeholder="you@example.com"
+                className="w-full rounded-lg bg-zinc-900 border border-white/15 pl-8 pr-3 py-2 text-xs text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-400"
+              />
+            </div>
+
+            <div className="relative">
+              <label htmlFor="auth-password" className="sr-only">
+                Password
+              </label>
+              <Lock className="w-3.5 h-3.5 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                id="auth-password"
+                type={showPassword ? 'text' : 'password'}
+                required
+                minLength={authMode === 'register' ? 8 : 1}
+                autoComplete={authMode === 'register' ? 'new-password' : 'current-password'}
+                value={passwordInput}
+                onChange={(e) => setPasswordInput(e.target.value)}
+                placeholder={
+                  authMode === 'register' ? 'Password (min 8 characters)' : 'Your password'
+                }
+                className="w-full rounded-lg bg-zinc-900 border border-white/15 pl-8 pr-9 py-2 text-xs text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:border-indigo-400"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword((prev) => !prev)}
+                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-200 p-0.5"
+              >
+                {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+              </button>
+            </div>
+
+            <button
+              type="submit"
+              disabled={authBusy}
+              className="w-full min-h-[40px] inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 px-3.5 py-2 text-xs font-semibold text-white transition-colors"
+            >
+              {authBusy ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : authMode === 'register' ? (
+                <UserPlus className="w-3.5 h-3.5" />
+              ) : (
+                <LogIn className="w-3.5 h-3.5" />
+              )}
+              {authBusy
+                ? authMode === 'register'
+                  ? 'Creating Account...'
+                  : 'Signing In...'
+                : authMode === 'register'
+                  ? 'Register with Email'
+                  : 'Sign In with Email'}
+            </button>
+          </form>
         ) : (
           <form onSubmit={(e) => handleSave(e)} className="space-y-2.5">
             <div className="flex items-center justify-between gap-2 text-[11px] text-zinc-400">
@@ -430,7 +575,7 @@ export function PresetsPanel() {
                 <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
                 <span className="truncate">
                   <strong className="text-zinc-200 font-medium">
-                    {user.displayName || 'Creator'}
+                    {user.displayName || user.email}
                   </strong>
                 </span>
                 {isAdmin && (
@@ -671,46 +816,34 @@ export function PresetsPanel() {
             )}
           </form>
         ) : galleryTab === 'moderation' && isAdmin ? (
-          canListAllPresets ? (
-            loadingAdmin ? (
-              <div className="flex items-center justify-center gap-2 py-8 text-xs text-zinc-400">
-                <Loader2 className="w-4 h-4 animate-spin text-rose-400" />
-                Loading presets for moderation...
-              </div>
-            ) : adminPresets.length === 0 ? (
-              <div className="rounded-xl bg-[#090b0f] border border-white/10 p-5 text-center space-y-1.5">
-                <Shield className="w-5 h-5 text-emerald-400 mx-auto" />
-                <p className="text-xs font-medium text-zinc-200">No presets in database</p>
-                <p className="text-[11px] text-zinc-400">
-                  Saved user presets will appear here for moderation and takedown.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {adminPresets.map((preset) => renderPresetCard(preset, true))}
-              </div>
-            )
-          ) : (
-            <div className="rounded-xl bg-[#090b0f] border border-white/10 p-4 space-y-2 text-[11px] text-zinc-300">
-              <div className="flex items-center gap-1.5 font-semibold text-rose-300">
-                <ShieldAlert className="w-4 h-4" />
-                Moderator Link Takedown Active
-              </div>
-              <p className="text-zinc-400">
-                Open any reported share link via the <strong className="text-zinc-200">Open Link</strong> tab and click <strong className="text-rose-300">Take Down</strong> in the top banner to remove it.
+          loadingAdmin ? (
+            <div className="flex items-center justify-center gap-2 py-8 text-xs text-zinc-400">
+              <Loader2 className="w-4 h-4 animate-spin text-rose-400" />
+              Loading presets for moderation...
+            </div>
+          ) : adminPresets.length === 0 ? (
+            <div className="rounded-xl bg-[#090b0f] border border-white/10 p-5 text-center space-y-1.5">
+              <Shield className="w-5 h-5 text-emerald-400 mx-auto" />
+              <p className="text-xs font-medium text-zinc-200">No presets in database</p>
+              <p className="text-[11px] text-zinc-400">
+                Saved user presets will appear here for moderation and takedown.
               </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {adminPresets.map((preset) => renderPresetCard(preset, true))}
             </div>
           )
         ) : myPresets.length === 0 ? (
           <div className="rounded-xl bg-[#090b0f] border border-white/10 p-5 text-center space-y-1.5">
             <Sparkles className="w-5 h-5 text-indigo-400 mx-auto" />
             <p className="text-xs font-medium text-zinc-200">
-              {user ? 'No saved presets yet' : 'Sign in to manage your presets'}
+              {user ? 'No saved presets yet' : 'Create an account to save presets'}
             </p>
             <p className="text-[11px] text-zinc-400">
               {user
                 ? `You can save up to ${presetQuotaMax} link-shareable 3D ID card presets and open them on any device.`
-                : 'Sign in above to save your own presets, or switch to Open Link to view a shared link.'}
+                : 'Register with email & password above to save presets, or switch to Open Link to view a shared link.'}
             </p>
           </div>
         ) : (
