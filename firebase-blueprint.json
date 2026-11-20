@@ -152,7 +152,7 @@
     },
     "CardPreset": {
       "title": "CardPreset",
-      "description": "User-generated shareable 3D ID card and lanyard preset stored for cross-device loading and interaction.",
+      "description": "User-generated link-shareable 3D ID card and lanyard preset stored for cross-device loading and interaction.",
       "type": "object",
       "properties": {
         "title": {
@@ -181,12 +181,12 @@
         },
         "isPublic": {
           "type": "boolean",
-          "description": "When true, anyone with the share link or browsing the community gallery can load and interact with the 3D ID card."
+          "description": "When true, anyone with the direct link (?preset=<id>) can load and interact with the 3D ID card."
         },
         "thumbnailDataUrl": {
           "type": "string",
           "maxLength": 45000,
-          "description": "Compact front-card JPEG preview thumbnail data URL for the preset gallery."
+          "description": "Compact front-card JPEG preview thumbnail data URL."
         },
         "config": {
           "type": "object",
@@ -215,6 +215,43 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "UserQuota": {
+      "title": "UserQuota",
+      "description": "Atomic per-user preset counter enforcing the maximum presets-per-user cap without storing PII.",
+      "type": "object",
+      "properties": {
+        "presetCount": {
+          "type": "number",
+          "description": "Current number of active saved presets owned by this user (0..10 for standard users, 0..100 for admins)."
+        },
+        "lastPresetId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Document ID of the preset atomically created or deleted in this batch."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server-generated timestamp of the last atomic quota update."
+        }
+      },
+      "required": ["presetCount", "lastPresetId", "updatedAt"]
+    },
+    "AdminRole": {
+      "title": "AdminRole",
+      "description": "Console-managed moderation role marker granting preset review and takedown permissions.",
+      "type": "object",
+      "properties": {
+        "role": {
+          "type": "string",
+          "enum": ["moderator", "admin"],
+          "description": "Elevated moderation role granted exclusively via the Firebase Console."
+        }
+      },
+      "required": ["role"]
     }
   },
   "firestore": {
@@ -222,7 +259,19 @@
       "schema": {
         "$ref": "#/entities/CardPreset"
       },
-      "description": "User-generated 3D ID card & lanyard presets shareable across devices."
+      "description": "User-generated 3D ID card & lanyard presets (link-only public access via get; owner/admin list)."
+    },
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/UserQuota"
+      },
+      "description": "Atomic per-user preset quota counter updated in batches alongside preset create/delete."
+    },
+    "/admins/{adminUid}": {
+      "schema": {
+        "$ref": "#/entities/AdminRole"
+      },
+      "description": "Console-managed admin role allowlist for content moderation and takedown."
     }
   }
 }

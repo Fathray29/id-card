@@ -28,6 +28,17 @@ service cloud.firestore {
       return isSignedIn() && request.auth.token.email_verified == true;
     }
 
+    // Bootstrapped owner admin (zero DB lookups — safe for list rules)
+    function isBootstrappedAdmin() {
+      return isVerifiedUser() && request.auth.token.email == 'fathray29@gmail.com';
+    }
+
+    // Full admin check including Console-managed /admins/{uid} collection (single-doc operations only)
+    function isAdmin() {
+      return isBootstrappedAdmin()
+        || (isVerifiedUser() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
+    }
+
     function isNumeric(val) {
       return val is int || val is float;
     }
@@ -41,9 +52,9 @@ service cloud.firestore {
         && val.size() <= maxLen
         && (
           val == ''
-          || (val.size() >= 23 && val[0:23] == 'data:image/webp;base64,')
-          || (val.size() >= 23 && val[0:23] == 'data:image/jpeg;base64,')
-          || (val.size() >= 22 && val[0:22] == 'data:image/png;base64,')
+          || (val >= 'data:image/webp;base64,' && val < 'data:image/webp;base64-')
+          || (val >= 'data:image/jpeg;base64,' && val < 'data:image/jpeg;base64-')
+          || (val >= 'data:image/png;base64,' && val < 'data:image/png;base64-')
         );
     }
 
@@ -162,7 +173,7 @@ service cloud.firestore {
         && isValidLayerPreset(cfg.lanyard);
     }
 
-    // Pillar 2: Standalone Validation Blueprint (Anti-Update-Gap)
+    // Pillar 2: Standalone Validation Blueprint for CardPreset (Anti-Update-Gap)
     function isValidCardPreset(data) {
       return data is map
         && data.keys().hasAll([
@@ -204,22 +215,114 @@ service cloud.firestore {
         && data.updatedAt is timestamp;
     }
 
-    // User-Generated Shareable 3D ID Card Presets
+    // Pillar 2: Standalone Validation Blueprint for UserQuota (no PII, strict counter bounds)
+    function isValidUserQuota(data) {
+      return data is map
+        && data.keys().hasAll(['presetCount', 'lastPresetId', 'updatedAt'])
+        && data.keys().hasOnly(['presetCount', 'lastPresetId', 'updatedAt'])
+        && data.presetCount is int
+        && data.presetCount >= 0
+        && data.presetCount <= 100
+        && isValidId(data.lastPresetId)
+        && data.updatedAt is timestamp;
+    }
+
+    // Console-managed Admin Role Allowlist (zero client writes permitted)
+    match /admins/{adminUid} {
+      allow get: if isVerifiedUser()
+        && isValidId(adminUid)
+        && (request.auth.uid == adminUid || isBootstrappedAdmin());
+      allow list, create, update, delete: if false;
+    }
+
+    // Atomic Per-User Preset Quota Counter (Pillar 7: Atomicity Guarantee)
+    match /users/{userId} {
+      allow get: if isVerifiedUser()
+        && isValidId(userId)
+        && (request.auth.uid == userId || isAdmin());
+
+      allow list: if false;
+
+      // First preset creation initializes quota document at presetCount == 1 atomically with /presets/{lastPresetId}
+      allow create: if isVerifiedUser()
+        && isValidId(userId)
+        && request.auth.uid == userId
+        && isValidUserQuota(incoming())
+        && incoming().presetCount == 1
+        && incoming().updatedAt == request.time
+        && !exists(/databases/$(database)/documents/presets/$(incoming().lastPresetId))
+        && existsAfter(/databases/$(database)/documents/presets/$(incoming().lastPresetId))
+        && getAfter(/databases/$(database)/documents/presets/$(incoming().lastPresetId)).data.ownerId == userId;
+
+      // Subsequent creates increment (+1 up to cap); deletes (by owner or admin takedown) decrement (-1)
+      allow update: if isVerifiedUser()
+        && isValidId(userId)
+        && isValidUserQuota(incoming())
+        && (request.auth.uid == userId || isAdmin())
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['presetCount', 'lastPresetId', 'updatedAt'])
+        && (
+          // Action: Atomic +1 increment paired with creating a new preset owned by userId
+          (
+            request.auth.uid == userId
+            && incoming().presetCount == existing().presetCount + 1
+            && (incoming().presetCount <= 10 || (isAdmin() && incoming().presetCount <= 100))
+            && !exists(/databases/$(database)/documents/presets/$(incoming().lastPresetId))
+            && existsAfter(/databases/$(database)/documents/presets/$(incoming().lastPresetId))
+            && getAfter(/databases/$(database)/documents/presets/$(incoming().lastPresetId)).data.ownerId == userId
+          )
+          ||
+          // Action: Atomic -1 decrement paired with deleting an existing preset owned by userId
+          (
+            incoming().presetCount == existing().presetCount - 1
+            && existing().presetCount >= 1
+            && exists(/databases/$(database)/documents/presets/$(incoming().lastPresetId))
+            && !existsAfter(/databases/$(database)/documents/presets/$(incoming().lastPresetId))
+            && get(/databases/$(database)/documents/presets/$(incoming().lastPresetId)).data.ownerId == userId
+          )
+        );
+
+      allow delete: if false;
+    }
+
+    // User-Generated Link-Only Shareable 3D ID Card Presets
     match /presets/{presetId} {
-      // Single-doc get: public shared presets are open for cross-device 3D interaction; private drafts owner-only
+      // Link-only single-doc get: public presets accessible by direct link (?preset=<id>); private drafts owner/admin only
       allow get: if isValidId(presetId)
-        && (resource == null || existing().isPublic == true || (isSignedIn() && existing().ownerId == request.auth.uid));
+        && (
+          resource == null
+          || existing().isPublic == true
+          || (isVerifiedUser() && (existing().ownerId == request.auth.uid || isAdmin()))
+        );
 
-      // Pillar 8: Secure List Queries — explicitly evaluates resource.data (no client delegation, zero get() calls)
-      allow list: if resource.data.isPublic == true
-        || (isSignedIn() && resource.data.ownerId == request.auth.uid);
+      // Pillar 8: Anti-scraping list — NO public listing; owners list their own presets, bootstrapped admin lists for moderation
+      allow list: if isVerifiedUser()
+        && (resource.data.ownerId == request.auth.uid || isBootstrappedAdmin());
 
-      // Create: verified signed-in creator, strict ID & schema blueprint, server timestamps
+      // Create: verified creator, strict schema, server timestamps, AND atomic quota counter increment (max 10 for standard users)
       allow create: if isVerifiedUser()
         && isValidId(presetId)
         && isValidCardPreset(incoming())
         && incoming().createdAt == request.time
-        && incoming().updatedAt == request.time;
+        && incoming().updatedAt == request.time
+        && existsAfter(/databases/$(database)/documents/users/$(request.auth.uid))
+        && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.lastPresetId == presetId
+        && (
+          (
+            !exists(/databases/$(database)/documents/users/$(request.auth.uid))
+            && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.presetCount == 1
+          )
+          ||
+          (
+            exists(/databases/$(database)/documents/users/$(request.auth.uid))
+            && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.presetCount
+              == get(/databases/$(database)/documents/users/$(request.auth.uid)).data.presetCount + 1
+            && (
+              getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.presetCount <= 10
+              || (isAdmin() && getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.presetCount <= 100)
+            )
+          )
+        );
 
       // Update: validation blueprint first, immutable ownerId & createdAt, action-based affectedKeys allowlists
       allow update: if isVerifiedUser()
@@ -247,10 +350,10 @@ service cloud.firestore {
           ])
         );
 
-      // Delete: verified owner only
+      // Delete: verified owner OR admin takedown role
       allow delete: if isVerifiedUser()
         && isValidId(presetId)
-        && existing().ownerId == request.auth.uid;
+        && (existing().ownerId == request.auth.uid || isAdmin());
     }
   }
 }

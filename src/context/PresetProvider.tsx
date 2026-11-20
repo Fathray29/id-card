@@ -2,20 +2,28 @@ import React, { createContext, useCallback, useContext, useEffect, useState } fr
 import { onAuthStateChanged, type User } from 'firebase/auth';
 import { auth, signInWithGoogle, signOutUser } from '../firebase';
 import {
+  checkUserAdminRole,
   createUserPreset,
   deleteUserPreset,
   fetchPresetById,
-  subscribePublicPresets,
+  subscribeAdminAllPresets,
   subscribeUserPresets,
+  subscribeUserQuota,
   updateUserPreset,
 } from '../services/presetService';
 import { useStudioStore } from '../store/useStudioStore';
 import {
+  MAX_PRESETS_PER_ADMIN,
+  MAX_PRESETS_PER_USER,
   buildPresetShareUrl,
+  extractPresetIdFromInput,
   extractPresetIdFromSearch,
   generateFrontThumbnailDataUrl,
+  isCustomDomainHost,
+  resolveShareOrigin,
   serializeLayerForPreset,
   type CardPresetRecord,
+  type ShareOriginMode,
   type StudioPresetConfigData,
 } from '../utils/presetSerializer';
 
@@ -30,19 +38,26 @@ interface PresetContextValue {
   user: User | null;
   authReady: boolean;
   authBusy: boolean;
-  publicPresets: CardPresetRecord[];
+  isAdmin: boolean;
+  canListAllPresets: boolean;
   myPresets: CardPresetRecord[];
-  loadingPublic: boolean;
+  adminPresets: CardPresetRecord[];
+  loadingAdmin: boolean;
+  presetQuotaCount: number;
+  presetQuotaMax: number;
   loadingSharedLink: boolean;
   activePreset: CardPresetRecord | null;
   sharedLinkError: string | null;
   presetsError: string | null;
+  shareOriginMode: ShareOriginMode;
+  setShareOriginMode: (mode: ShareOriginMode) => void;
   signIn: () => Promise<User | null>;
   signOut: () => Promise<void>;
   loadPreset: (preset: CardPresetRecord, closeMobileDrawer?: boolean) => void;
+  loadPresetByLinkOrId: (rawInput: string) => Promise<CardPresetRecord | null>;
   clearActivePreset: () => void;
   saveCurrentAsPreset: (params: SavePresetParams) => Promise<CardPresetRecord>;
-  removePreset: (presetId: string) => Promise<void>;
+  removePreset: (presetId: string, ownerId?: string) => Promise<void>;
   getShareUrl: (presetId: string) => string;
 }
 
@@ -100,60 +115,96 @@ export function PresetProvider({ children }: { children: React.ReactNode }) {
   const [authReady, setAuthReady] = useState(false);
   const [authBusy, setAuthBusy] = useState(false);
 
-  const [publicPresets, setPublicPresets] = useState<CardPresetRecord[]>([]);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [canListAllPresets, setCanListAllPresets] = useState(false);
   const [myPresets, setMyPresets] = useState<CardPresetRecord[]>([]);
-  const [loadingPublic, setLoadingPublic] = useState(true);
+  const [adminPresets, setAdminPresets] = useState<CardPresetRecord[]>([]);
+  const [loadingAdmin, setLoadingAdmin] = useState(false);
+  const [presetQuotaCount, setPresetQuotaCount] = useState(0);
   const [loadingSharedLink, setLoadingSharedLink] = useState(false);
   const [activePreset, setActivePreset] = useState<CardPresetRecord | null>(null);
   const [sharedLinkError, setSharedLinkError] = useState<string | null>(null);
   const [presetsError, setPresetsError] = useState<string | null>(null);
 
-  // Track Firebase Auth session readiness
+  // Default to custom domain rayyan29.eu.org when running on it; otherwise allow 1-click toggle
+  const [shareOriginMode, setShareOriginMode] = useState<ShareOriginMode>(() => {
+    if (typeof window !== 'undefined' && isCustomDomainHost(window.location.hostname)) {
+      return 'custom';
+    }
+    return 'custom';
+  });
+
+  // Track Firebase Auth session readiness & admin role detection
   useEffect(() => {
+    let active = true;
     const unsub = onAuthStateChanged(auth, (nextUser) => {
       setUser(nextUser);
       setAuthReady(true);
+      if (!nextUser) {
+        setIsAdmin(false);
+        setCanListAllPresets(false);
+        return;
+      }
+      void checkUserAdminRole(nextUser).then((status) => {
+        if (!active) return;
+        setIsAdmin(status.isAdmin);
+        setCanListAllPresets(status.canListAll);
+      });
     });
-    return () => unsub();
+    return () => {
+      active = false;
+      unsub();
+    };
   }, []);
 
-  // Subscribe to Community Public Presets once Firebase Auth initializes
-  useEffect(() => {
-    if (!authReady) return;
-    setLoadingPublic(true);
-    const unsub = subscribePublicPresets(
-      (items) => {
-        setPublicPresets(items);
-        setLoadingPublic(false);
-        setPresetsError(null);
-      },
-      () => {
-        setLoadingPublic(false);
-        setPresetsError('Unable to sync shared presets right now.');
-      }
-    );
-    return () => unsub();
-  }, [authReady]);
-
-  // Subscribe to current signed-in user's personal presets (public + private)
+  // Subscribe to current signed-in user's personal presets & atomic quota counter
   useEffect(() => {
     if (!authReady || !user) {
       setMyPresets([]);
+      setPresetQuotaCount(0);
+      setPresetsError(null);
       return;
     }
-    const unsub = subscribeUserPresets(
+    const unsubPresets = subscribeUserPresets(
       user.uid,
       (items) => {
         setMyPresets(items);
+        setPresetsError(null);
       },
       () => {
         setPresetsError('Unable to load your saved presets.');
       }
     );
-    return () => unsub();
+    const unsubQuota = subscribeUserQuota(user.uid, (count) => {
+      setPresetQuotaCount(count);
+    });
+    return () => {
+      unsubPresets();
+      unsubQuota();
+    };
   }, [authReady, user]);
 
-  // Auto-load shared preset if URL contains ?preset=<presetId> (cross-device sharing!)
+  // Subscribe to all presets ONLY for bootstrapped admin moderation view
+  useEffect(() => {
+    if (!authReady || !user || !canListAllPresets) {
+      setAdminPresets([]);
+      setLoadingAdmin(false);
+      return;
+    }
+    setLoadingAdmin(true);
+    const unsub = subscribeAdminAllPresets(
+      (items) => {
+        setAdminPresets(items);
+        setLoadingAdmin(false);
+      },
+      () => {
+        setLoadingAdmin(false);
+      }
+    );
+    return () => unsub();
+  }, [authReady, user, canListAllPresets]);
+
+  // Auto-load link-only shared preset when URL contains ?preset=<presetId>
   useEffect(() => {
     if (!authReady || typeof window === 'undefined') return;
     const requestedId = extractPresetIdFromSearch(window.location.search);
@@ -196,6 +247,11 @@ export function PresetProvider({ children }: { children: React.ReactNode }) {
       if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
         return null;
       }
+      if (code === 'auth/unauthorized-domain') {
+        throw new Error(
+          'This domain is not yet allowlisted in Firebase Authentication → Settings → Authorized domains. Add rayyan29.eu.org there to enable Google Sign-In.'
+        );
+      }
       throw err;
     } finally {
       setAuthBusy(false);
@@ -221,6 +277,28 @@ export function PresetProvider({ children }: { children: React.ReactNode }) {
     setSharedLinkError(null);
     syncUrlPresetParam(preset.id);
   }, []);
+
+  const loadPresetByLinkOrId = useCallback(
+    async (rawInput: string): Promise<CardPresetRecord | null> => {
+      const presetId = extractPresetIdFromInput(rawInput);
+      if (!presetId) {
+        throw new Error('Paste a valid share link (e.g. https://rayyan29.eu.org/?preset=...) or preset ID.');
+      }
+      setLoadingSharedLink(true);
+      setSharedLinkError(null);
+      try {
+        const preset = await fetchPresetById(presetId);
+        if (!preset) {
+          throw new Error('Preset not found, removed, or set to Private.');
+        }
+        loadPreset(preset, true);
+        return preset;
+      } finally {
+        setLoadingSharedLink(false);
+      }
+    },
+    [loadPreset]
+  );
 
   const clearActivePreset = useCallback(() => {
     setActivePreset(null);
@@ -258,23 +336,26 @@ export function PresetProvider({ children }: { children: React.ReactNode }) {
         return updated;
       }
 
-      const created = await createUserPreset({
-        title: params.title,
-        description: params.description,
-        isPublic: params.isPublic,
-        thumbnailDataUrl,
-        config,
-      });
+      const created = await createUserPreset(
+        {
+          title: params.title,
+          description: params.description,
+          isPublic: params.isPublic,
+          thumbnailDataUrl,
+          config,
+        },
+        isAdmin
+      );
       setActivePreset(created);
       syncUrlPresetParam(created.id);
       return created;
     },
-    [myPresets, user]
+    [isAdmin, myPresets, user]
   );
 
   const removePreset = useCallback(
-    async (presetId: string) => {
-      await deleteUserPreset(presetId);
+    async (presetId: string, ownerId?: string) => {
+      await deleteUserPreset(presetId, ownerId);
       if (activePreset?.id === presetId) {
         setActivePreset(null);
         syncUrlPresetParam(null);
@@ -283,10 +364,23 @@ export function PresetProvider({ children }: { children: React.ReactNode }) {
     [activePreset?.id]
   );
 
-  const getShareUrl = useCallback((presetId: string) => {
-    if (typeof window === 'undefined') return `?preset=${presetId}`;
-    return buildPresetShareUrl(presetId, window.location.origin, window.location.pathname);
-  }, []);
+  const getShareUrl = useCallback(
+    (presetId: string) => {
+      const currentOrigin =
+        typeof window !== 'undefined' ? window.location.origin : 'https://rayyan29.eu.org';
+      const targetOrigin = resolveShareOrigin(shareOriginMode, currentOrigin);
+      const pathname =
+        shareOriginMode === 'custom'
+          ? '/'
+          : typeof window !== 'undefined'
+            ? window.location.pathname
+            : '/';
+      return buildPresetShareUrl(presetId, targetOrigin, pathname);
+    },
+    [shareOriginMode]
+  );
+
+  const presetQuotaMax = isAdmin ? MAX_PRESETS_PER_ADMIN : MAX_PRESETS_PER_USER;
 
   return (
     <PresetContext.Provider
@@ -294,16 +388,23 @@ export function PresetProvider({ children }: { children: React.ReactNode }) {
         user,
         authReady,
         authBusy,
-        publicPresets,
+        isAdmin,
+        canListAllPresets,
         myPresets,
-        loadingPublic,
+        adminPresets,
+        loadingAdmin,
+        presetQuotaCount,
+        presetQuotaMax,
         loadingSharedLink,
         activePreset,
         sharedLinkError,
         presetsError,
+        shareOriginMode,
+        setShareOriginMode,
         signIn,
         signOut,
         loadPreset,
+        loadPresetByLinkOrId,
         clearActivePreset,
         saveCurrentAsPreset,
         removePreset,

@@ -7,15 +7,19 @@ import {
   onSnapshot,
   query,
   serverTimestamp,
-  setDoc,
   updateDoc,
   where,
+  writeBatch,
   type DocumentData,
   type Timestamp,
   type Unsubscribe,
 } from 'firebase/firestore';
+import type { User } from 'firebase/auth';
 import { auth, db, handleFirestoreError, OperationType } from '../firebase';
 import {
+  BOOTSTRAPPED_ADMIN_EMAIL,
+  MAX_PRESETS_PER_ADMIN,
+  MAX_PRESETS_PER_USER,
   PRESET_LIMITS,
   generatePresetId,
   sanitizeAuthorName,
@@ -25,6 +29,13 @@ import {
 } from '../utils/presetSerializer';
 
 const PRESETS_COLLECTION = 'presets';
+const USERS_COLLECTION = 'users';
+const ADMINS_COLLECTION = 'admins';
+
+export interface AdminRoleStatus {
+  isAdmin: boolean;
+  canListAll: boolean;
+}
 
 function timestampToMs(val: unknown): number {
   if (!val) return 0;
@@ -51,6 +62,33 @@ function docToPresetRecord(id: string, data: DocumentData): CardPresetRecord | n
   };
 }
 
+/**
+ * Checks whether the signed-in user holds the bootstrapped admin email
+ * or a Console-provisioned /admins/{uid} role document.
+ */
+export async function checkUserAdminRole(user: User | null): Promise<AdminRoleStatus> {
+  if (!user || !user.emailVerified) {
+    return { isAdmin: false, canListAll: false };
+  }
+  if ((user.email || '').toLowerCase() === BOOTSTRAPPED_ADMIN_EMAIL) {
+    return { isAdmin: true, canListAll: true };
+  }
+  try {
+    const snap = await getDoc(doc(db, ADMINS_COLLECTION, user.uid));
+    if (snap.exists()) {
+      return { isAdmin: true, canListAll: false };
+    }
+  } catch {
+    // Non-admin or unavailable: treat cleanly as standard user
+  }
+  return { isAdmin: false, canListAll: false };
+}
+
+/**
+ * Single-document link-only preset fetch (?preset=<id>).
+ * Public presets can be opened on any device without signing in;
+ * private drafts are readable only by their owner or an admin.
+ */
 export async function fetchPresetById(presetId: string): Promise<CardPresetRecord | null> {
   if (
     !presetId ||
@@ -70,14 +108,19 @@ export async function fetchPresetById(presetId: string): Promise<CardPresetRecor
   }
 }
 
-export function subscribePublicPresets(
+/**
+ * Subscribes to the signed-in user's own saved presets (ownerId == uid).
+ * Public scraping via collection-wide listing is blocked by firestore.rules.
+ */
+export function subscribeUserPresets(
+  ownerId: string,
   onData: (presets: CardPresetRecord[]) => void,
   onError?: (err: Error) => void
 ): Unsubscribe {
   const q = query(
     collection(db, PRESETS_COLLECTION),
-    where('isPublic', '==', true),
-    limit(36)
+    where('ownerId', '==', ownerId),
+    limit(100)
   );
 
   return onSnapshot(
@@ -101,16 +144,14 @@ export function subscribePublicPresets(
   );
 }
 
-export function subscribeUserPresets(
-  ownerId: string,
+/**
+ * Bootstrapped-admin-only subscription listing presets across all users for moderation & takedown.
+ */
+export function subscribeAdminAllPresets(
   onData: (presets: CardPresetRecord[]) => void,
   onError?: (err: Error) => void
 ): Unsubscribe {
-  const q = query(
-    collection(db, PRESETS_COLLECTION),
-    where('ownerId', '==', ownerId),
-    limit(36)
-  );
+  const q = query(collection(db, PRESETS_COLLECTION), limit(60));
 
   return onSnapshot(
     q,
@@ -129,6 +170,34 @@ export function subscribeUserPresets(
       } catch (wrapped) {
         onError?.(wrapped instanceof Error ? wrapped : new Error(String(wrapped)));
       }
+    }
+  );
+}
+
+/**
+ * Subscribes to the user's atomic preset quota document (/users/{userId}).
+ */
+export function subscribeUserQuota(
+  userId: string,
+  onCount: (count: number) => void
+): Unsubscribe {
+  const ref = doc(db, USERS_COLLECTION, userId);
+  return onSnapshot(
+    ref,
+    (snap) => {
+      if (!snap.exists()) {
+        onCount(0);
+        return;
+      }
+      const data = snap.data();
+      const count = typeof data?.presetCount === 'number' && Number.isFinite(data.presetCount)
+        ? Math.max(0, Math.floor(data.presetCount))
+        : 0;
+      onCount(count);
+    },
+    () => {
+      // Fallback silently to 0; server rules enforce exact count atomically
+      onCount(0);
     }
   );
 }
@@ -141,10 +210,36 @@ export interface CreatePresetInput {
   config: StudioPresetConfigData;
 }
 
-export async function createUserPreset(input: CreatePresetInput): Promise<CardPresetRecord> {
+/**
+ * Atomically creates /presets/{presetId} and increments /users/{uid}.presetCount in a single
+ * Firestore writeBatch, enforcing the per-user preset cap server-side via getAfter()/existsAfter().
+ */
+export async function createUserPreset(
+  input: CreatePresetInput,
+  isAdmin = false
+): Promise<CardPresetRecord> {
   const user = auth.currentUser;
   if (!user) {
     throw new Error('Please sign in with Google to save and share presets.');
+  }
+
+  const maxAllowed = isAdmin ? MAX_PRESETS_PER_ADMIN : MAX_PRESETS_PER_USER;
+  const userQuotaRef = doc(db, USERS_COLLECTION, user.uid);
+  let quotaSnap;
+  try {
+    quotaSnap = await getDoc(userQuotaRef);
+  } catch (error) {
+    handleFirestoreError(error, OperationType.GET, `${USERS_COLLECTION}/${user.uid}`);
+  }
+
+  const currentCount = quotaSnap.exists()
+    ? Math.max(0, Math.floor(Number(quotaSnap.data()?.presetCount ?? 0)))
+    : 0;
+
+  if (currentCount >= maxAllowed) {
+    throw new Error(
+      `Preset limit reached (${currentCount}/${maxAllowed}). Delete an older preset before saving a new one.`
+    );
   }
 
   const presetId = generatePresetId();
@@ -172,7 +267,21 @@ export async function createUserPreset(input: CreatePresetInput): Promise<CardPr
 
   const path = `${PRESETS_COLLECTION}/${presetId}`;
   try {
-    await setDoc(doc(db, PRESETS_COLLECTION, presetId), payload);
+    const batch = writeBatch(db);
+    batch.set(doc(db, PRESETS_COLLECTION, presetId), payload);
+
+    const nextQuotaPayload = {
+      presetCount: currentCount + 1,
+      lastPresetId: presetId,
+      updatedAt: serverTimestamp(),
+    };
+    if (quotaSnap.exists()) {
+      batch.update(userQuotaRef, nextQuotaPayload);
+    } else {
+      batch.set(userQuotaRef, nextQuotaPayload);
+    }
+
+    await batch.commit();
     const now = Date.now();
     return {
       id: presetId,
@@ -233,14 +342,46 @@ export async function updateUserPreset(
   }
 }
 
-export async function deleteUserPreset(presetId: string): Promise<void> {
+/**
+ * Deletes a preset (owner delete or admin takedown) and atomically decrements
+ * the creator's /users/{ownerId}.presetCount when a quota doc exists.
+ */
+export async function deleteUserPreset(presetId: string, ownerId?: string): Promise<void> {
   const user = auth.currentUser;
   if (!user) {
     throw new Error('Please sign in with Google to delete presets.');
   }
+
+  const targetOwnerId = ownerId || user.uid;
   const path = `${PRESETS_COLLECTION}/${presetId}`;
+  const presetRef = doc(db, PRESETS_COLLECTION, presetId);
+
   try {
-    await deleteDoc(doc(db, PRESETS_COLLECTION, presetId));
+    const quotaRef = doc(db, USERS_COLLECTION, targetOwnerId);
+    let quotaSnap = null;
+    try {
+      quotaSnap = await getDoc(quotaRef);
+    } catch {
+      quotaSnap = null;
+    }
+
+    const currentCount =
+      quotaSnap && quotaSnap.exists()
+        ? Math.max(0, Math.floor(Number(quotaSnap.data()?.presetCount ?? 0)))
+        : 0;
+
+    if (quotaSnap && quotaSnap.exists() && currentCount >= 1) {
+      const batch = writeBatch(db);
+      batch.delete(presetRef);
+      batch.update(quotaRef, {
+        presetCount: currentCount - 1,
+        lastPresetId: presetId,
+        updatedAt: serverTimestamp(),
+      });
+      await batch.commit();
+    } else {
+      await deleteDoc(presetRef);
+    }
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, path);
   }

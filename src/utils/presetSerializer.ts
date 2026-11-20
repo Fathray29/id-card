@@ -16,6 +16,14 @@ import type {
 } from '../store/useStudioStore';
 import { renderLayerToCanvas } from './texturePipeline';
 
+export const MAX_PRESETS_PER_USER = 10;
+export const MAX_PRESETS_PER_ADMIN = 100;
+export const BOOTSTRAPPED_ADMIN_EMAIL = 'fathray29@gmail.com';
+export const CUSTOM_SHARE_DOMAIN = 'rayyan29.eu.org';
+export const CUSTOM_SHARE_ORIGIN = `https://${CUSTOM_SHARE_DOMAIN}`;
+
+export type ShareOriginMode = 'custom' | 'current';
+
 export const PRESET_LIMITS = {
   titleMinLength: 1,
   titleMaxLength: 80,
@@ -125,6 +133,24 @@ export function generatePresetId(): string {
   return `badge_${Date.now().toString(36)}_${suffix}`;
 }
 
+export function isCustomDomainHost(hostname: string): boolean {
+  const lower = (hostname || '').trim().toLowerCase();
+  return lower === CUSTOM_SHARE_DOMAIN || lower.endsWith(`.${CUSTOM_SHARE_DOMAIN}`);
+}
+
+export function resolveShareOrigin(mode: ShareOriginMode, currentOrigin: string): string {
+  if (mode === 'custom') return CUSTOM_SHARE_ORIGIN;
+  try {
+    const parsed = new URL(currentOrigin);
+    if (isCustomDomainHost(parsed.hostname)) {
+      return parsed.origin;
+    }
+    return parsed.origin;
+  } catch {
+    return CUSTOM_SHARE_ORIGIN;
+  }
+}
+
 export function buildPresetShareUrl(presetId: string, origin: string, pathname = '/'): string {
   const cleanPath = pathname.startsWith('/') ? pathname : `/${pathname}`;
   const url = new URL(cleanPath, origin);
@@ -143,6 +169,35 @@ export function extractPresetIdFromSearch(search: string): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Extracts a validated preset ID from either a full share URL (e.g. https://rayyan29.eu.org/?preset=...),
+ * a query string (?preset=...), or a bare preset ID (badge_...).
+ */
+export function extractPresetIdFromInput(rawInput: string): string | null {
+  const trimmed = (rawInput || '').trim();
+  if (!trimmed) return null;
+
+  if (trimmed.includes('preset=')) {
+    try {
+      const url = trimmed.startsWith('http://') || trimmed.startsWith('https://')
+        ? new URL(trimmed)
+        : new URL(trimmed.startsWith('?') ? `https://${CUSTOM_SHARE_DOMAIN}/${trimmed}` : `https://${trimmed}`);
+      return extractPresetIdFromSearch(url.search);
+    } catch {
+      const idx = trimmed.indexOf('?');
+      if (idx >= 0) {
+        return extractPresetIdFromSearch(trimmed.slice(idx));
+      }
+      return null;
+    }
+  }
+
+  if (trimmed.length <= PRESET_LIMITS.idMaxLength && PRESET_LIMITS.idPattern.test(trimmed)) {
+    return trimmed;
+  }
+  return null;
 }
 
 export function validateLayerPreset(

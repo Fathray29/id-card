@@ -1,22 +1,44 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  CUSTOM_SHARE_ORIGIN,
+  MAX_PRESETS_PER_USER,
   PRESET_LIMITS,
   buildPresetShareUrl,
+  extractPresetIdFromInput,
   extractPresetIdFromSearch,
   generatePresetId,
+  isCustomDomainHost,
+  resolveShareOrigin,
   sanitizeAuthorName,
   sanitizeHexColor,
 } from './presetSerializer';
 import { createInitialSpringState, stepOfflinePresetFrame } from './physicsEngine';
 
-test('preset share URL builder and search parser round-trip valid IDs and reject poisoned IDs', () => {
+test('preset share URL builder, rayyan29.eu.org domain resolver, and link parser round-trip safely', () => {
   const id = generatePresetId();
   assert.equal(PRESET_LIMITS.idPattern.test(id), true);
+  assert.equal(MAX_PRESETS_PER_USER, 10);
 
-  const shareUrl = buildPresetShareUrl(id, 'https://badgeforge.example.com', '/');
+  // Custom domain allowlist & share origin resolution
+  assert.equal(isCustomDomainHost('rayyan29.eu.org'), true);
+  assert.equal(isCustomDomainHost('studio.rayyan29.eu.org'), true);
+  assert.equal(isCustomDomainHost('evil-rayyan29.eu.org.attacker.com'), false);
+  assert.equal(resolveShareOrigin('custom', 'http://localhost:3000'), CUSTOM_SHARE_ORIGIN);
+  assert.equal(resolveShareOrigin('current', 'http://localhost:3000'), 'http://localhost:3000');
+
+  const shareUrl = buildPresetShareUrl(id, CUSTOM_SHARE_ORIGIN, '/');
+  assert.equal(shareUrl, `https://rayyan29.eu.org/?preset=${id}`);
   const parsed = new URL(shareUrl);
   assert.equal(extractPresetIdFromSearch(parsed.search), id);
+
+  // Open Link input parser handles full URL, query string, bare ID, and rejects poisoned values
+  assert.equal(extractPresetIdFromInput(shareUrl), id);
+  assert.equal(extractPresetIdFromInput(`rayyan29.eu.org/?preset=${id}`), id);
+  assert.equal(extractPresetIdFromInput(`?preset=${id}`), id);
+  assert.equal(extractPresetIdFromInput(id), id);
+  assert.equal(extractPresetIdFromInput('https://rayyan29.eu.org/?preset=../../etc/passwd'), null);
+  assert.equal(extractPresetIdFromInput('../../../etc/passwd'), null);
 
   // Reject path traversal or invalid characters
   assert.equal(extractPresetIdFromSearch('?preset=../../etc/passwd'), null);
