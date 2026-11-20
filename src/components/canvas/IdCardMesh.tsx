@@ -238,9 +238,9 @@ export function IdCardMesh() {
     invalidate();
   }, [hologramIntensity, hologramMaterial, invalidate]);
 
-  // Subtle deterministic time evolution for hologram micro-shimmer
+  // Subtle deterministic time evolution for hologram micro-shimmer (driven by AssemblyRig during offline render)
   useFrame(({ clock }) => {
-    if (hologramEnabled) {
+    if (hologramEnabled && !useStudioStore.getState().renderProgress.isRendering) {
       hologramMaterial.uniforms.uTime.value = clock.getElapsedTime();
     }
   });
@@ -248,7 +248,7 @@ export function IdCardMesh() {
   // Offset card mesh so its slot punch (y = +3.78 cm in local card coordinates) aligns
   // strictly with the parent clasp hinge pivot at (0, 0, 0).
   const offsetY = -CARD_SPECS.slotCenterY;
-  const hologramZ = CARD_SPECS.thickness / 2 + 0.002;
+  const hologramZ = CARD_SPECS.thickness / 2 + 0.0035;
 
   return (
     <group position={[0, offsetY, 0]} name="id-card-group">

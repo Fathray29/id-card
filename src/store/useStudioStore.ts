@@ -5,6 +5,7 @@ import type {
   ExportAspectRatio,
   VideoDurationSec,
 } from '../utils/physicsEngine';
+import type { MotionBlurQuality, ShutterAngleDeg } from '../utils/renderMath';
 import {
   createInitialPerformanceTier,
   detectMobileDevice,
@@ -143,6 +144,14 @@ interface StudioState {
   setVideoPreset: (preset: AnimationPreset) => void;
   videoDurationSec: VideoDurationSec;
   setVideoDurationSec: (sec: VideoDurationSec) => void;
+  motionBlurQuality: MotionBlurQuality;
+  setMotionBlurQuality: (quality: MotionBlurQuality) => void;
+  shutterAngleDeg: ShutterAngleDeg;
+  setShutterAngleDeg: (angle: ShutterAngleDeg) => void;
+  motionBlurQuality: MotionBlurQuality;
+  setMotionBlurQuality: (quality: MotionBlurQuality) => void;
+  shutterAngleDeg: ShutterAngleDeg;
+  setShutterAngleDeg: (angle: ShutterAngleDeg) => void;
 
   renderProgress: RenderProgressState;
   setRenderProgress: (patch: Partial<RenderProgressState>) => void;
@@ -426,6 +435,14 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     })),
   videoDurationSec: 16,
   setVideoDurationSec: (videoDurationSec) => set({ videoDurationSec }),
+  motionBlurQuality: 'cinema',
+  setMotionBlurQuality: (motionBlurQuality) => set({ motionBlurQuality }),
+  shutterAngleDeg: 180,
+  setShutterAngleDeg: (shutterAngleDeg) => set({ shutterAngleDeg }),
+  motionBlurQuality: 'cinema',
+  setMotionBlurQuality: (motionBlurQuality) => set({ motionBlurQuality }),
+  shutterAngleDeg: 180,
+  setShutterAngleDeg: (shutterAngleDeg) => set({ shutterAngleDeg }),
 
   renderProgress: {
     isRendering: false,

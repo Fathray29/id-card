@@ -14,6 +14,12 @@ import {
   createInitialFpsMonitorState,
   updateFpsMonitor,
 } from './performanceMonitor';
+import {
+  STILL_12MP_RESOLUTIONS,
+  STILL_RGSS_OFFSETS,
+  buildTemporalShutterSamples,
+  computeRenderTiles,
+} from './renderMath';
 
 test('critically damped oscillator converges cleanly to target flip angle', () => {
   let theta = 0;
@@ -68,13 +74,13 @@ test('offline simulation stepping is 100% deterministic across independent runs 
 test('Hermite-spline cinematic showcase cycles Full -> Front -> Back -> Macro (Top to Bottom) -> Full seamlessly', () => {
   const fullStart = evaluateHermiteCameraPath(0.0, 16 / 9);
   const frontMid = evaluateHermiteCameraPath(0.34, 16 / 9);
-  const backMid = evaluateHermiteCameraPath(0.60, 16 / 9);
-  const macroTop = evaluateHermiteCameraPath(0.80, 16 / 9);
-  const macroBottom = evaluateHermiteCameraPath(0.90, 16 / 9);
+  const backMid = evaluateHermiteCameraPath(0.58, 16 / 9);
+  const macroTop = evaluateHermiteCameraPath(0.76, 16 / 9);
+  const macroBottom = evaluateHermiteCameraPath(0.86, 16 / 9);
   const fullEnd = evaluateHermiteCameraPath(1.0, 16 / 9);
 
   // Act 1: Full establishing shot with generous lanyard clearance
-  assert.ok(fullStart.position.z > 78, `Expected Full Z > 78, got ${fullStart.position.z}`);
+  assert.ok(fullStart.position.z > 76, `Expected Full Z > 76, got ${fullStart.position.z}`);
   assert.ok(fullStart.target.y > 16, `Expected Full target Y > 16, got ${fullStart.target.y}`);
 
   // Act 2: Front hero shot (+Z side)
@@ -189,3 +195,116 @@ test('live simulation breathing sway stays within +/- 0.015 rad amplitude', () =
     assert.ok(Math.abs(state.neckSwayZ) <= 0.015001);
   }
 });
+
+test('Zero-hiccup C1 continuity across every scene boundary and loop seam in cinematic-reel & cinematic-360', () => {
+  const checkContinuity = (
+    sample: (u: number) => { x: number; y: number; z: number; ty: number },
+    steps: number,
+    maxAccel: number,
+    label: string
+  ) => {
+    const pts = Array.from({ length: steps }, (_, i) => sample(i / steps));
+    for (let i = 0; i < steps; i++) {
+      const prev = pts[(i - 1 + steps) % steps];
+      const curr = pts[i];
+      const next = pts[(i + 1) % steps];
+
+      // Second finite difference measures velocity jump (hiccup/kink) at frame i (including loop seam i=0!)
+      const ddx = next.x - 2 * curr.x + prev.x;
+      const ddy = next.y - 2 * curr.y + prev.y;
+      const ddz = next.z - 2 * curr.z + prev.z;
+      const ddTy = next.ty - 2 * curr.ty + prev.ty;
+      const accelMag = Math.hypot(ddx, ddy, ddz, ddTy);
+
+      assert.ok(
+        accelMag < maxAccel,
+        `${label}: detected velocity hiccup (${accelMag.toFixed(4)} >= ${maxAccel}) at frame ${i}/${steps}`
+      );
+    }
+  };
+
+  checkContinuity(
+    (u) => {
+      const p = evaluateHermiteCameraPath(u, 16 / 9, true);
+      return { x: p.position.x, y: p.position.y, z: p.position.z, ty: p.target.y };
+    },
+    960,
+    0.04,
+    'cinematic-reel'
+  );
+
+  checkContinuity(
+    (u) => {
+      const c = evaluateCompleteShowcaseFrame(u, 16 / 9);
+      return {
+        x: c.cameraPose.position.x,
+        y: c.cameraPose.position.y,
+        z: c.cameraPose.position.z,
+        ty: c.cameraPose.target.y,
+      };
+    },
+    1440,
+    0.04,
+    'cinematic-360'
+  );
+});
+
+test('Temporal supersampling shutter kernel builds normalized filmic weights & fractional sub-frame stepping is stateless', () => {
+  const off = buildTemporalShutterSamples('off', 180);
+  assert.equal(off.length, 1);
+  assert.equal(off[0].offsetFrames, 0);
+  assert.equal(off[0].weight, 1);
+
+  for (const [quality, expectedCount] of [
+    ['cinema', 8],
+    ['ultra', 12],
+  ] as const) {
+    const samples = buildTemporalShutterSamples(quality, 180);
+    assert.equal(samples.length, expectedCount);
+    const weightSum = samples.reduce((acc, s) => acc + s.weight, 0);
+    assert.ok(Math.abs(weightSum - 1.0) < 1e-9, `Expected weights sum=1, got ${weightSum}`);
+
+    // Symmetric around frame center with higher center weight than shutter edges (no ghosting)
+    assert.ok(Math.abs(samples[0].offsetFrames + samples[samples.length - 1].offsetFrames) < 1e-9);
+    const centerIdx = Math.floor(samples.length / 2);
+    assert.ok(
+      samples[centerIdx].weight > samples[0].weight,
+      'Center shutter sample should carry higher weight than edge sample'
+    );
+  }
+
+  // Stateless fractional sub-frame evaluation works identically regardless of previous state
+  const dummy = createInitialSpringState();
+  for (const preset of ['cinematic-reel', 'cinematic-360', 'pendulum-flip', 'turntable'] as const) {
+    const a = stepOfflinePresetFrame(dummy, preset, 160.25, 960, 60, 16 / 9);
+    const b = stepOfflinePresetFrame(a, preset, 160.25, 960, 60, 16 / 9);
+    assert.equal(a.thetaY, b.thetaY);
+    assert.equal(a.turntableY, b.turntableY);
+    assert.equal(a.simTime, b.simTime);
+  }
+});
+
+test('12MP tiled rendering covers every pixel exactly once within GPU tile bounds and RGSS weights sum to 1', () => {
+  const rgssSum = STILL_RGSS_OFFSETS.reduce((acc, s) => acc + s.weight, 0);
+  assert.ok(Math.abs(rgssSum - 1.0) < 1e-9);
+
+  for (const ratio of ['16:9', '9:16', '1:1'] as const) {
+    const spec = STILL_12MP_RESOLUTIONS[ratio];
+    const megapixels = (spec.width * spec.height) / 1_000_000;
+    assert.ok(megapixels >= 11.9 && megapixels <= 12.1, `Expected ~12MP for ${ratio}, got ${megapixels}`);
+
+    const tiles = computeRenderTiles(spec.width, spec.height, 1536);
+    assert.ok(tiles.length >= 6);
+
+    let areaSum = 0;
+    for (const tile of tiles) {
+      assert.ok(tile.width > 0 && tile.width <= 1536);
+      assert.ok(tile.height > 0 && tile.height <= 1536);
+      assert.ok(tile.x >= 0 && tile.x + tile.width <= spec.width);
+      assert.ok(tile.y >= 0 && tile.y + tile.height <= spec.height);
+      areaSum += tile.width * tile.height;
+    }
+    assert.equal(areaSum, spec.width * spec.height, 'Tiles must partition 12MP canvas with zero gaps or overlaps');
+  }
+});
+

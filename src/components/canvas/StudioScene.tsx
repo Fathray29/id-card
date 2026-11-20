@@ -345,16 +345,16 @@ export function StudioScene() {
           intensity={1.95}
           color="#fff4e4"
           castShadow={shadowsEnabled}
-          shadow-mapSize-width={performanceTier.isMobileDevice ? 512 : 1024}
-          shadow-mapSize-height={performanceTier.isMobileDevice ? 512 : 1024}
+          shadow-mapSize-width={performanceTier.isMobileDevice ? 512 : 2048}
+          shadow-mapSize-height={performanceTier.isMobileDevice ? 512 : 2048}
           shadow-camera-near={1}
           shadow-camera-far={75}
           shadow-camera-left={-18}
           shadow-camera-right={18}
           shadow-camera-top={44}
           shadow-camera-bottom={-10}
-          shadow-bias={-0.0005}
-          shadow-normalBias={0.02}
+          shadow-bias={-0.0003}
+          shadow-normalBias={0.015}
         />
 
         {/* Cool Fill Light from opposite left flank */}
@@ -424,18 +424,20 @@ export function StudioScene() {
         {/* Main 3D ID Card, Swivel Clasp Hardware & 80x2cm Lanyard Rig */}
         <AssemblyRig />
 
-        {/* Soft studio floor ContactShadows (automatically disabled on mobile <45fps) */}
+        {/* Soft studio floor ContactShadows (automatically disabled on mobile <45fps & hidden on transparent PNGs) */}
         {performanceTier.highFidelityShadows && (
-          <ContactShadows
-            position={[0, cardCaseEnabled ? -6.5 : -5.5, 0]}
-            opacity={isLightBackdrop ? 0.35 : 0.45}
-            scale={25}
-            blur={2.2}
-            far={16}
-            resolution={isSoftwareGl || performanceTier.isMobileDevice ? 256 : 512}
-            frames={1}
-            color={isLightBackdrop ? '#1e293b' : '#000000'}
-          />
+          <group name="studio-contact-shadows">
+            <ContactShadows
+              position={[0, cardCaseEnabled ? -6.5 : -5.5, 0]}
+              opacity={isLightBackdrop ? 0.35 : 0.45}
+              scale={25}
+              blur={2.2}
+              far={16}
+              resolution={isSoftwareGl || performanceTier.isMobileDevice ? 256 : 512}
+              frames={1}
+              color={isLightBackdrop ? '#1e293b' : '#000000'}
+            />
+          </group>
         )}
       </Canvas>
     </div>

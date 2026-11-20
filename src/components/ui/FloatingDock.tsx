@@ -290,15 +290,15 @@ export function FloatingDock() {
 
             <div className="w-px h-5 bg-white/10 mx-0.5 shrink-0" aria-hidden="true" />
 
-            {/* Offline 1080p Render Actions */}
+            {/* Offline 12MP Still & 1080p60 Render Actions */}
             <button
               type="button"
               onClick={() => openExportModal('still')}
-              aria-label="Export 1080p Still Image"
+              aria-label="Export 12MP Still Image"
               className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-medium text-zinc-100 bg-white/10 hover:bg-white/15 border border-white/10 whitespace-nowrap shrink-0 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
             >
               <Camera className="w-3.5 h-3.5 text-emerald-400" />
-              1080p Still
+              12MP Still
             </button>
 
             <button

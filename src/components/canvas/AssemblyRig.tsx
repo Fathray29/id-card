@@ -63,6 +63,13 @@ export function AssemblyRig() {
       if (cardPendulumRef.current) {
         cardPendulumRef.current.rotation.x = pose.thetaX;
         cardPendulumRef.current.rotation.z = pose.thetaZ;
+        // Keep holographic foil shader time strictly deterministic across temporal motion-blur sub-frames
+        const holoObj = cardPendulumRef.current.getObjectByName('hologram-overlay') as
+          | THREE.Mesh
+          | undefined;
+        if (holoObj && holoObj.material instanceof THREE.ShaderMaterial && holoObj.material.uniforms.uTime) {
+          holoObj.material.uniforms.uTime.value = pose.simTime;
+        }
       }
       if (pose.cameraPose) {
         const persp = camera as THREE.PerspectiveCamera;

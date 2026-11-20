@@ -176,91 +176,146 @@ export function cubicHermite(
   return h00 * p0 + h10 * m0 + h01 * p1 + h11 * m1;
 }
 
-/** Orbital camera waypoint along the Hermite spline path */
+/** Orbital camera waypoint along the continuous global Hermite spline path */
 interface OrbitalWaypoint {
   t: number;
-  azimuthDeg: number; // 0 = +Z front, 90 = +X right, 180 = -Z back, -360 = +Z front
+  azimuthDeg: number; // Strictly monotonic negative: +18° -> ... -> -342° (exact 360° wrap, zero reversals!)
   radius: number; // Horizontal XZ distance from target (cm)
   camY: number; // Camera height (cm)
   targetY: number; // Look-at height (cm)
   fov: number;
-  /** Tangent tension multiplier (0 = calm settle/hold, 0.35 = flowing graceful curve) */
-  tension: number;
   shotName: CameraKeyframePose['shotName'];
 }
 
 /**
- * Slow, Unhurried, Luxurious 5-Act Hermite-Spline Commercial Path:
- * Generous transition budgets (~2.5s+ each at 16s duration) with C2 quintic ease-in-out
- * eliminate fast whip-pans between Full -> Front -> Back -> Macro (Top to Bottom) -> Full.
+ * Seamless, Zero-Hiccup 5-Act Continuous Global Spline Path:
+ *  - Strictly monotonic azimuth (+18° -> -342°) eliminates direction reversals & snap kinks.
+ *  - Waypoints are spatially denser during hero showcases (Front, Back, Macro) and wider across
+ *    transitions, so the global C1 Fritsch-Butland (PCHIP) Hermite spline naturally glides smoothly
+ *    into each hero shot and accelerates gracefully into sweeping transitions with ZERO dead-stops
+ *    or inter-scene hiccups from frame 0 to the final frame.
  */
 const CINEMATIC_REEL_WAYPOINTS: OrbitalWaypoint[] = [
-  // Act 1 (0.00 -> 0.11): Calm Full Establishing Drift (entire 80cm loop + card cleanly framed)
-  { t: 0.0, azimuthDeg: 9, radius: 86.0, camY: 18.0, targetY: 17.0, fov: 36, tension: 0.18, shotName: 'Full' },
-  { t: 0.11, azimuthDeg: -4, radius: 80.0, camY: 16.8, targetY: 15.8, fov: 35.4, tension: 0.32, shotName: 'Full' },
+  // Act 1 (0.00 -> 0.13): Full Establishing Drift (entire 80cm lanyard + badge framed cleanly)
+  { t: 0.0, azimuthDeg: 18, radius: 84.0, camY: 17.5, targetY: 16.5, fov: 36.0, shotName: 'Full' },
+  { t: 0.13, azimuthDeg: 10, radius: 74.0, camY: 15.4, targetY: 14.4, fov: 35.4, shotName: 'Full' },
 
-  // Transition Full -> Front (0.11 -> 0.28 = 17% of reel): Long, silky eased dolly-in
-  // Act 2 (0.28 -> 0.39): Slow lingering Front Hero showcase sweep
-  { t: 0.28, azimuthDeg: 11, radius: 20.6, camY: 1.2, targetY: 0.1, fov: 34.2, tension: 0.22, shotName: 'Front' },
-  { t: 0.39, azimuthDeg: -11, radius: 19.6, camY: 0.7, targetY: -0.1, fov: 33.8, tension: 0.28, shotName: 'Front' },
+  // Seamless Push-In (15%) -> Act 2 (0.28 -> 0.39): Front Hero Showcase Sweep
+  { t: 0.28, azimuthDeg: 6, radius: 21.4, camY: 1.15, targetY: 0.0, fov: 34.0, shotName: 'Front' },
+  { t: 0.39, azimuthDeg: -10, radius: 20.6, camY: 0.7, targetY: -0.2, fov: 33.8, shotName: 'Front' },
 
-  // Transition Front -> Back (0.39 -> 0.56 = 17% of reel): Unhurried 180° orbital arc around bevel
-  // Act 3 (0.56 -> 0.65): Slow lingering Back Hero showcase sweep
-  { t: 0.56, azimuthDeg: -168, radius: 20.4, camY: 1.0, targetY: 0.0, fov: 34.2, tension: 0.28, shotName: 'Back' },
-  { t: 0.65, azimuthDeg: -192, radius: 19.6, camY: 0.65, targetY: -0.15, fov: 33.8, tension: 0.22, shotName: 'Back' },
+  // Seamless 180° Orbital Sweep (14%) -> Act 3 (0.53 -> 0.64): Back Hero Showcase Sweep
+  { t: 0.53, azimuthDeg: -168, radius: 21.4, camY: 1.05, targetY: 0.0, fov: 34.0, shotName: 'Back' },
+  { t: 0.64, azimuthDeg: -192, radius: 20.6, camY: 0.65, targetY: -0.2, fov: 33.8, shotName: 'Back' },
 
-  // Transition Back -> Macro Top (0.65 -> 0.80 = 15% of reel): Graceful eased arc into Macro Top
-  // Act 4 (0.80 -> 0.90): Slow Macro Crane Sweep (Top: Weave/Crimp/Seated Clasp -> Bottom: Card Detail)
-  { t: 0.80, azimuthDeg: -346, radius: 9.4, camY: 7.2, targetY: 6.2, fov: 32.2, tension: 0.18, shotName: 'Macro Top' },
-  { t: 0.90, azimuthDeg: -370, radius: 10.0, camY: -2.0, targetY: -2.4, fov: 32.2, tension: 0.18, shotName: 'Macro Bottom' },
+  // Seamless Arc into Macro (12%) -> Act 4 (0.76 -> 0.86): Macro Crane Tilt (Top: Weave/Clasp -> Bottom: Card Detail)
+  { t: 0.76, azimuthDeg: -334, radius: 9.4, camY: 7.0, targetY: 6.0, fov: 32.0, shotName: 'Macro Top' },
+  { t: 0.86, azimuthDeg: -339, radius: 11.2, camY: -2.2, targetY: -2.6, fov: 32.2, shotName: 'Macro Bottom' },
 
-  // Transition Macro Bottom -> Full (0.90 -> 1.00): Graceful pull-back return to exact starting pose
-  { t: 1.0, azimuthDeg: -351, radius: 86.0, camY: 18.0, targetY: 17.0, fov: 36, tension: 0.18, shotName: 'Full' },
+  // Seamless Silky Pull-Back (14%) Returning to Exact Starting Pose (+18° === -342° mod 360°)
+  { t: 1.0, azimuthDeg: -342, radius: 84.0, camY: 17.5, targetY: 16.5, fov: 36.0, shotName: 'Full' },
 ];
 
 type NumericChannel = 'azimuthDeg' | 'radius' | 'camY' | 'targetY' | 'fov';
 
 /**
- * Computes damped, overshoot-safe Catmull-Rom Hermite tangents for a waypoint channel.
- * Guarantees monotonicity around extrema so radius never dips/clips during curved orbits.
+ * Computes global C1-continuous Fritsch-Butland (PCHIP) monotone Hermite velocity slopes `dv/du`
+ * for every waypoint along a channel.
+ *  - Guarantees ZERO velocity discontinuities (hiccups) between scenes!
+ *  - Guarantees ZERO overshoot at local extrema (e.g. tight macro radius never clips the card).
+ *  - When `periodic = true`, wraps slope seamlessly across `t = 1.0 -> t = 0.0` for endless looping.
  */
-function computeHermiteTangent(
+function computeGlobalHermiteSlopes(
   waypoints: OrbitalWaypoint[],
-  index: number,
-  channel: NumericChannel
-): number {
+  channel: NumericChannel,
+  periodic: boolean
+): number[] {
   const n = waypoints.length;
-  const curr = waypoints[index];
-  if (index === 0 || index === n - 1) {
-    return 0;
+  const segCount = n - 1;
+  const dts: number[] = new Array(segCount);
+  const secants: number[] = new Array(segCount);
+
+  for (let i = 0; i < segCount; i++) {
+    const dt = Math.max(1e-6, waypoints[i + 1].t - waypoints[i].t);
+    dts[i] = dt;
+    secants[i] = (waypoints[i + 1][channel] - waypoints[i][channel]) / dt;
   }
 
-  const prev = waypoints[index - 1];
-  const next = waypoints[index + 1];
-  const dPrev = curr[channel] - prev[channel];
-  const dNext = next[channel] - curr[channel];
+  const slopes: number[] = new Array(n).fill(0);
 
-  // Clamp tangent to 0 at local extrema (monotone cubic Hermite condition) to prevent overshoot/clipping
-  if (dPrev * dNext <= 0) {
-    return 0;
+  const pchipSlope = (dtPrev: number, sPrev: number, dtNext: number, sNext: number): number => {
+    if (sPrev * sNext <= 0) {
+      // Smoothly pass through zero velocity at local extremum (zero overshoot)
+      return 0;
+    }
+    const w1 = 2 * dtNext + dtPrev;
+    const w2 = dtNext + 2 * dtPrev;
+    return (w1 + w2) / (w1 / sPrev + w2 / sNext);
+  };
+
+  for (let i = 1; i < n - 1; i++) {
+    slopes[i] = pchipSlope(dts[i - 1], secants[i - 1], dts[i], secants[i]);
   }
 
-  const rawTangent = 0.5 * (dPrev + dNext);
-  return rawTangent * curr.tension;
+  if (periodic) {
+    // Periodic wrap-around: match velocity identically at u = 0 and u = 1
+    const boundarySlope = pchipSlope(
+      dts[segCount - 1],
+      secants[segCount - 1],
+      dts[0],
+      secants[0]
+    );
+    slopes[0] = boundarySlope;
+    slopes[n - 1] = boundarySlope;
+  } else {
+    // Clamped C1 zero-velocity endpoints for seamless handoff into Phase 2 (360° turntable)
+    slopes[0] = 0;
+    slopes[n - 1] = 0;
+  }
+
+  return slopes;
+}
+
+const PERIODIC_SLOPES: Record<NumericChannel, number[]> = {
+  azimuthDeg: computeGlobalHermiteSlopes(CINEMATIC_REEL_WAYPOINTS, 'azimuthDeg', true),
+  radius: computeGlobalHermiteSlopes(CINEMATIC_REEL_WAYPOINTS, 'radius', true),
+  camY: computeGlobalHermiteSlopes(CINEMATIC_REEL_WAYPOINTS, 'camY', true),
+  targetY: computeGlobalHermiteSlopes(CINEMATIC_REEL_WAYPOINTS, 'targetY', true),
+  fov: computeGlobalHermiteSlopes(CINEMATIC_REEL_WAYPOINTS, 'fov', true),
+};
+
+const CLAMPED_SLOPES: Record<NumericChannel, number[]> = {
+  azimuthDeg: computeGlobalHermiteSlopes(CINEMATIC_REEL_WAYPOINTS, 'azimuthDeg', false),
+  radius: computeGlobalHermiteSlopes(CINEMATIC_REEL_WAYPOINTS, 'radius', false),
+  camY: computeGlobalHermiteSlopes(CINEMATIC_REEL_WAYPOINTS, 'camY', false),
+  targetY: computeGlobalHermiteSlopes(CINEMATIC_REEL_WAYPOINTS, 'targetY', false),
+  fov: computeGlobalHermiteSlopes(CINEMATIC_REEL_WAYPOINTS, 'fov', false),
+};
+
+/**
+ * Wraps normalized progress seamlessly into [0, 1) for periodic curves,
+ * allowing negative/overflow sub-frame temporal motion blur offsets around frame 0 & N-1.
+ */
+function wrapProgress01(p: number): number {
+  const mod = p % 1;
+  return mod < 0 ? mod + 1 : mod;
 }
 
 /**
- * Evaluates a slow, graceful Cubic Hermite Spline camera pose with C2 quintic ease-in-out
- * timing at normalized progress `u in [0, 1]`.
- * Automatically scales radius for portrait (9:16) and square (1:1) framing.
+ * Evaluates a continuous, zero-hiccup global C1 PCHIP Cubic Hermite Spline camera pose
+ * at normalized progress `u`.
+ *  - `periodic = true` (default): continuous velocity across every scene AND across loop seam 1.0 -> 0.0.
+ *  - `periodic = false`: smooth zero-velocity ease at u=0 and u=1 for seamless handoff into 360° phase.
  */
 export function evaluateHermiteCameraPath(
   progress: number,
-  aspect = 16 / 9
+  aspect = 16 / 9,
+  periodic = true
 ): CameraKeyframePose {
-  const u = clamp01(progress);
+  const u = periodic ? (progress === 1 ? 1 : wrapProgress01(progress)) : clamp01(progress);
+  const slopeTable = periodic ? PERIODIC_SLOPES : CLAMPED_SLOPES;
 
-  let idx = 0;
+  let idx = CINEMATIC_REEL_WAYPOINTS.length - 2;
   for (let i = 0; i < CINEMATIC_REEL_WAYPOINTS.length - 1; i++) {
     if (u >= CINEMATIC_REEL_WAYPOINTS[i].t && u <= CINEMATIC_REEL_WAYPOINTS[i + 1].t) {
       idx = i;
@@ -270,16 +325,14 @@ export function evaluateHermiteCameraPath(
 
   const w0 = CINEMATIC_REEL_WAYPOINTS[idx];
   const w1 = CINEMATIC_REEL_WAYPOINTS[idx + 1];
-  const span = Math.max(1e-6, w1.t - w0.t);
-  const localT = clamp01((u - w0.t) / span);
-
-  // Smooth cinema dolly easing (C2 quintic smootherstep + sine blend) eliminates harsh transitions & mid-segment whips
-  const eased = easeCinemaDolly(localT);
+  const dt = Math.max(1e-6, w1.t - w0.t);
+  // Linear local parameter preserves exact global C1 velocity continuity across every waypoint!
+  const localT = clamp01((u - w0.t) / dt);
 
   const sampleChannel = (ch: NumericChannel): number => {
-    const m0 = computeHermiteTangent(CINEMATIC_REEL_WAYPOINTS, idx, ch);
-    const m1 = computeHermiteTangent(CINEMATIC_REEL_WAYPOINTS, idx + 1, ch);
-    return cubicHermite(w0[ch], m0, w1[ch], m1, eased);
+    const m0 = slopeTable[ch][idx] * dt;
+    const m1 = slopeTable[ch][idx + 1] * dt;
+    return cubicHermite(w0[ch], m0, w1[ch], m1, localT);
   };
 
   const azDeg = sampleChannel('azimuthDeg');
@@ -292,8 +345,10 @@ export function evaluateHermiteCameraPath(
   const targetY = sampleChannel('targetY');
   const fov = sampleChannel('fov');
 
-  // Subtle slow crane float (zero at u=0 and u=1 for seamless looping)
-  const microBreath = Math.sin(u * Math.PI * 2) * 0.08;
+  // C2 smooth periodic micro-breath (zero value & zero slope when clamped, periodic when looping)
+  const microBreath = periodic
+    ? Math.sin(u * Math.PI * 2) * 0.08
+    : Math.pow(Math.sin(u * Math.PI), 2) * 0.08;
 
   return {
     position: {
@@ -316,44 +371,45 @@ export const evaluateCinematicCamera = evaluateHermiteCameraPath;
 
 /**
  * Evaluates the Complete Combined Showcase ("Cinematic + 360°"):
- *   Phase 1 (u in [0.00, 0.70]): Slow, graceful Hermite-spline Cinematic Showcase
- *     (Full -> Front -> Back -> Macro Top-to-Bottom -> Full)
+ *   Phase 1 (u in [0.00, 0.70]): Continuous C1 Hermite-spline Cinematic Showcase
+ *     (Full -> Front -> Back -> Macro Top-to-Bottom -> Full) settling smoothly to rest at u=0.70.
  *   Phase 2 (u in [0.70, 1.00]): Seamless C2 quintic-eased 360° Full Turntable Showcase
- *     returning cleanly to exact starting pose (t=1.0 === t=0.0).
+ *     with C2 sin² crane breathing (zero velocity jump at BOTH u=0.70 and u=1.00 -> 0.00!).
  */
 export function evaluateCompleteShowcaseFrame(
   progress: number,
   aspect = 16 / 9
 ): { cameraPose: CameraKeyframePose; turntableY: number } {
-  const u = clamp01(progress);
+  const u = progress === 1 ? 1 : wrapProgress01(progress);
   const split = 0.70;
 
   if (u <= split) {
     const cinematicU = u / split;
     return {
-      cameraPose: evaluateHermiteCameraPath(cinematicU, aspect),
+      cameraPose: evaluateHermiteCameraPath(cinematicU, aspect, false),
       turntableY: 0,
     };
   }
 
-  // Phase 2: Slow, smooth C2 quintic-eased 360° showcase at graceful Full establishing distance
-  const spinU = (u - split) / (1 - split);
-  const easedSpin = easeCinemaDolly(spinU);
-  const baseFull = evaluateHermiteCameraPath(0, aspect);
+  // Phase 2: Slow, smooth C2 quintic-eased 360° showcase with C2 sin² breathing (zero velocity kinks!)
+  const spinU = clamp01((u - split) / (1 - split));
+  const easedSpin = easeInOutQuint(spinU);
+  const baseFull = evaluateHermiteCameraPath(0, aspect, false);
 
-  // Subtle graceful dolly breath during the 360° spin (peaks gently mid-spin, returns identically at 0 and 1)
-  const breathFactor = 1.0 - Math.sin(spinU * Math.PI) * 0.07;
+  // sin²(π * spinU) has zero value AND zero derivative at spinU=0 and spinU=1 (zero hiccup!)
+  const smoothBell = Math.pow(Math.sin(spinU * Math.PI), 2);
+  const breathFactor = 1.0 - smoothBell * 0.065;
 
   return {
     cameraPose: {
       position: {
         x: baseFull.position.x * breathFactor,
-        y: baseFull.position.y - Math.sin(spinU * Math.PI) * 1.1,
+        y: baseFull.position.y - smoothBell * 1.05,
         z: baseFull.position.z * breathFactor,
       },
       target: {
         x: 0,
-        y: baseFull.target.y - Math.sin(spinU * Math.PI) * 0.7,
+        y: baseFull.target.y - smoothBell * 0.65,
         z: 0,
       },
       fov: baseFull.fov,
@@ -361,6 +417,28 @@ export function evaluateCompleteShowcaseFrame(
     },
     turntableY: easedSpin * Math.PI * 2,
   };
+}
+
+/**
+ * Exact closed-form underdamped spring step response & velocity for stateless fractional-frame
+ * temporal supersampling in `pendulum-flip` preset.
+ */
+function analyticalSpringStep(
+  tau: number,
+  omegaN = 6.8,
+  zeta = 0.76
+): { value: number; velocity: number } {
+  if (tau <= 0) {
+    return { value: 0, velocity: 0 };
+  }
+  const s = Math.sqrt(Math.max(1e-6, 1 - zeta * zeta));
+  const omegaD = omegaN * s;
+  const decay = Math.exp(-zeta * omegaN * tau);
+  const cosT = Math.cos(omegaD * tau);
+  const sinT = Math.sin(omegaD * tau);
+  const value = 1 - decay * (cosT + (zeta / s) * sinT);
+  const velocity = (omegaN / s) * decay * sinT;
+  return { value, velocity };
 }
 
 export interface LiveStepOptions {
@@ -414,7 +492,7 @@ export function stepLiveSimulation(
       };
     }
 
-    const pose = evaluateHermiteCameraPath(progress, aspect);
+    const pose = evaluateHermiteCameraPath(progress, aspect, true);
     return {
       thetaY: Math.sin(phase * 2) * 0.038,
       omegaY: 0,
@@ -487,30 +565,32 @@ export function stepLiveSimulation(
 }
 
 /**
- * Computes exact deterministic rig + Hermite-spline camera pose for offline 1080p 60fps video rendering.
- * Timing is strictly `frameIndex / fps` so frame cadence never varies across mobile/desktop devices.
+ * Computes exact, stateless deterministic rig + Hermite-spline camera pose for offline 1080p 60fps
+ * video rendering AND fractional sub-frame temporal supersampling (motion blur).
+ * Accepts arbitrary floating-point `frameIndex` (e.g., `frame + offsetFrames`) with zero state drift.
  */
 export function stepOfflinePresetFrame(
-  prevState: SpringState,
+  _prevState: SpringState,
   preset: AnimationPreset,
   frameIndex: number,
   totalFrames: number,
   fps = 60,
   aspect = 16 / 9
 ): SpringState {
-  const dt = 1 / fps;
-  const t = frameIndex / fps;
-  const progress = totalFrames > 0 ? frameIndex / totalFrames : 0;
+  const safeTotal = Math.max(1, totalFrames);
+  const rawProgress = frameIndex / safeTotal;
+  const wrappedProgress = rawProgress === 1 ? 1 : wrapProgress01(rawProgress);
+  const duration = safeTotal / fps;
+  const t = wrappedProgress * duration;
 
-  const duration = totalFrames / fps;
   const cycles = Math.max(1, Math.round(duration * 0.25));
-  const phase = progress * Math.PI * 2 * cycles;
+  const phase = wrappedProgress * Math.PI * 2 * cycles;
   const neckSwayZ = Math.sin(phase) * 0.013;
   const neckSwayX = Math.cos(phase) * 0.007;
 
   if (preset === 'cinematic-reel') {
-    const cameraPose = evaluateHermiteCameraPath(progress, aspect);
-    const loopPhase = progress * Math.PI * 2;
+    const cameraPose = evaluateHermiteCameraPath(rawProgress, aspect, true);
+    const loopPhase = wrappedProgress * Math.PI * 2;
     return {
       thetaY: Math.sin(loopPhase * 2) * 0.038,
       omegaY: 0,
@@ -527,8 +607,8 @@ export function stepOfflinePresetFrame(
   }
 
   if (preset === 'cinematic-360') {
-    const combined = evaluateCompleteShowcaseFrame(progress, aspect);
-    const loopPhase = progress * Math.PI * 2;
+    const combined = evaluateCompleteShowcaseFrame(rawProgress, aspect);
+    const loopPhase = wrappedProgress * Math.PI * 2;
     return {
       thetaY: Math.sin(loopPhase * 2) * 0.035,
       omegaY: 0,
@@ -545,13 +625,14 @@ export function stepOfflinePresetFrame(
   }
 
   if (preset === 'turntable') {
-    const eased = progress * 0.4 + easeCinemaDolly(progress) * 0.6;
+    // Seamless C2 continuous 360° turntable with zero seam jump
+    const eased = wrappedProgress * 0.45 + easeInOutQuint(wrappedProgress) * 0.55;
     return {
       thetaY: 0,
       omegaY: 0,
-      thetaX: Math.sin(progress * Math.PI * 2) * 0.022,
+      thetaX: Math.sin(wrappedProgress * Math.PI * 2) * 0.022,
       omegaX: 0,
-      thetaZ: Math.sin(progress * Math.PI * 2) * 0.018,
+      thetaZ: Math.sin(wrappedProgress * Math.PI * 2) * 0.018,
       omegaZ: 0,
       neckSwayZ,
       neckSwayX,
@@ -562,28 +643,35 @@ export function stepOfflinePresetFrame(
   }
 
   if (preset === 'pendulum-flip') {
-    const targetY = progress >= 0.16 && progress < 0.62 ? Math.PI : 0;
-    const baseState = frameIndex === 0 ? createInitialSpringState() : prevState;
-    const stepped = stepLiveSimulation(baseState, {
-      dt,
-      targetFlipY: targetY,
-      autoSpin: false,
-      deterministicTime: t,
-    });
-    const gentleOrbit = Math.sin(progress * Math.PI * 2) * 0.18;
+    // Pure closed-form analytical spring response for fractional sub-frame motion blur accuracy
+    const flipOutTime = duration * 0.16;
+    const flipBackTime = duration * 0.62;
+    const outResp = analyticalSpringStep(t - flipOutTime);
+    const backResp = analyticalSpringStep(t - flipBackTime);
+
+    const thetaY = Math.PI * (outResp.value - backResp.value);
+    const omegaY = Math.PI * (outResp.velocity - backResp.velocity);
+    const gentleOrbit = Math.sin(wrappedProgress * Math.PI * 2) * 0.18;
+
     return {
-      ...stepped,
+      thetaY,
+      omegaY,
+      thetaX: Math.min(0.14, Math.abs(omegaY) * 0.014) + neckSwayX * 0.5,
+      omegaX: 0,
+      thetaZ: -omegaY * 0.018 - neckSwayZ * 0.65,
+      omegaZ: 0,
       neckSwayZ,
       neckSwayX,
       turntableY: gentleOrbit,
+      simTime: t,
       cameraPose: null,
     };
   }
 
   // 'parallax-sway'
-  const swayAngle = Math.sin(progress * Math.PI * 2) * 0.58;
-  const cardLag = Math.sin(progress * Math.PI * 2 - 0.35) * 0.06;
-  const cardPitch = Math.cos(progress * Math.PI * 2) * 0.035;
+  const swayAngle = Math.sin(wrappedProgress * Math.PI * 2) * 0.58;
+  const cardLag = Math.sin(wrappedProgress * Math.PI * 2 - 0.35) * 0.06;
+  const cardPitch = Math.cos(wrappedProgress * Math.PI * 2) * 0.035;
   return {
     thetaY: cardLag * 0.55,
     omegaY: 0,
@@ -591,8 +679,8 @@ export function stepOfflinePresetFrame(
     omegaX: 0,
     thetaZ: cardLag,
     omegaZ: 0,
-    neckSwayZ: Math.sin(progress * Math.PI * 2) * 0.02,
-    neckSwayX: Math.cos(progress * Math.PI * 2) * 0.01,
+    neckSwayZ: Math.sin(wrappedProgress * Math.PI * 2) * 0.02,
+    neckSwayX: Math.cos(wrappedProgress * Math.PI * 2) * 0.01,
     turntableY: swayAngle,
     simTime: t,
     cameraPose: null,

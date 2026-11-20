@@ -180,7 +180,7 @@ function ArtboardPreview({ layerId }: { layerId: LayerId }) {
             : 'Continuous Strap Artboard'}
         </span>
         <span className="text-[11px] font-mono tabular-nums text-zinc-400">
-          {isCard ? '5.4 × 8.56 cm · 300 DPI' : '80.0 × 2.0 cm · 40:1'}
+          {isCard ? '5.4 × 8.56 cm · 600 DPI' : '80.0 × 2.0 cm · 40:1'}
         </span>
       </div>
 

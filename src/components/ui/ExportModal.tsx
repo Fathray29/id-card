@@ -1,23 +1,29 @@
 import { useEffect, useRef } from 'react';
 import { AlertCircle, Camera, CheckCircle2, Film, Loader2, X } from 'lucide-react';
 import { useStudioStore, type ExportMode } from '../../store/useStudioStore';
-import { render1080p60Animation, render1080pStill } from '../../utils/renderEngine';
+import { render1080p60Animation, render12mpStill } from '../../utils/renderEngine';
 import {
   EXPORT_RESOLUTIONS,
   type AnimationPreset,
   type ExportAspectRatio,
 } from '../../utils/physicsEngine';
+import {
+  STILL_12MP_RESOLUTIONS,
+  getTemporalSampleCount,
+  type MotionBlurQuality,
+  type ShutterAngleDeg,
+} from '../../utils/renderMath';
 
 const VIDEO_PRESETS: Array<{ id: AnimationPreset; title: string; desc: string }> = [
   {
     id: 'cinematic-360',
     title: 'Complete Showcase (Cinematic + 360°)',
-    desc: 'Slow Hermite-spline Full → Front → Back → Macro (Top to Bottom) sweep followed seamlessly by a full 360° orbit',
+    desc: 'Continuous C1 spline Full → Front → Back → Macro (Top to Bottom) seamlessly flowing into a 360° orbit',
   },
   {
     id: 'cinematic-reel',
     title: 'Cinematic Showcase Reel (Full → Front → Back → Macro)',
-    desc: 'Graceful quintic-eased Hermite camera path cycling Full, Front, Back, and Top-to-Bottom Macro crane',
+    desc: 'Zero-hiccup periodic spline cycling Full, Front, Back, and Top-to-Bottom Macro with continuous motion',
   },
   {
     id: 'turntable',
@@ -27,7 +33,7 @@ const VIDEO_PRESETS: Array<{ id: AnimationPreset; title: string; desc: string }>
   {
     id: 'pendulum-flip',
     title: '180° Pendulum Flip & Return',
-    desc: 'Deterministic spring-damped swivel clasp flip revealing the back side and returning',
+    desc: 'Analytical spring-damped swivel clasp flip revealing the back side with natural momentum trails',
   },
   {
     id: 'parallax-sway',
@@ -37,6 +43,18 @@ const VIDEO_PRESETS: Array<{ id: AnimationPreset; title: string; desc: string }>
 ];
 
 const ASPECT_OPTIONS: ExportAspectRatio[] = ['16:9', '9:16', '1:1'];
+
+const MOTION_BLUR_OPTIONS: Array<{ id: MotionBlurQuality; label: string; sub: string }> = [
+  { id: 'off', label: 'Off', sub: '1× Crisp' },
+  { id: 'cinema', label: 'Cinema', sub: '8× Temporal' },
+  { id: 'ultra', label: 'Ultra', sub: '12× Temporal' },
+];
+
+const SHUTTER_OPTIONS: Array<{ deg: ShutterAngleDeg; label: string }> = [
+  { deg: 90, label: '90° Subtle' },
+  { deg: 180, label: '180° Cinema' },
+  { deg: 270, label: '270° Trails' },
+];
 
 export function ExportModal() {
   const open = useStudioStore((s) => s.exportModalOpen);
@@ -55,6 +73,10 @@ export function ExportModal() {
   const setVideoPreset = useStudioStore((s) => s.setVideoPreset);
   const videoDurationSec = useStudioStore((s) => s.videoDurationSec);
   const setVideoDurationSec = useStudioStore((s) => s.setVideoDurationSec);
+  const motionBlurQuality = useStudioStore((s) => s.motionBlurQuality);
+  const setMotionBlurQuality = useStudioStore((s) => s.setMotionBlurQuality);
+  const shutterAngleDeg = useStudioStore((s) => s.shutterAngleDeg);
+  const setShutterAngleDeg = useStudioStore((s) => s.setShutterAngleDeg);
 
   const renderProgress = useStudioStore((s) => s.renderProgress);
   const setRenderProgress = useStudioStore((s) => s.setRenderProgress);
@@ -76,17 +98,23 @@ export function ExportModal() {
   if (!open) return null;
 
   const totalFrames = videoDurationSec * 60;
-  const activeRes = EXPORT_RESOLUTIONS[exportAspect];
+  const activeVideoRes = EXPORT_RESOLUTIONS[exportAspect];
+  const activeStillRes = STILL_12MP_RESOLUTIONS[exportAspect];
+  const activeRes = mode === 'still' ? activeStillRes : activeVideoRes;
+  const blurSamples = getTemporalSampleCount(motionBlurQuality);
 
   const handleStartStillRender = async () => {
     if (!rigBridge || renderProgress.isRendering) return;
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
     setRenderProgress({
       isRendering: true,
       mode: 'still',
       currentFrame: 0,
-      totalFrames: 1,
-      percent: 25,
-      stageLabel: `Rendering ${activeRes.width}×${activeRes.height} MSAA still frame...`,
+      totalFrames: 6,
+      percent: 5,
+      stageLabel: `Preparing 12MP (${activeStillRes.width}×${activeStillRes.height}) tiled 16× SSAA render...`,
       error: null,
       lastCompletedFile: null,
     });
@@ -95,11 +123,20 @@ export function ExportModal() {
 
     try {
       const msaaSamples = useStudioStore.getState().performanceTier.msaaSamples;
-      const filename = await render1080pStill(rigBridge, {
+      const filename = await render12mpStill(rigBridge, {
         format: stillFormat,
         transparentBg: stillTransparentBg,
         aspectRatio: exportAspect,
         msaaSamples,
+        signal: controller.signal,
+        onProgress: (step, totalSteps, stageLabel) => {
+          setRenderProgress({
+            currentFrame: step,
+            totalFrames: totalSteps,
+            percent: Math.round((step / Math.max(1, totalSteps)) * 100),
+            stageLabel,
+          });
+        },
       });
       setRenderProgress({
         isRendering: false,
@@ -110,12 +147,15 @@ export function ExportModal() {
         lastCompletedFile: filename,
       });
     } catch (err) {
+      const isAbort = err instanceof DOMException && err.name === 'AbortError';
       setRenderProgress({
         isRendering: false,
         percent: 0,
-        stageLabel: 'Render failed',
-        error: err instanceof Error ? err.message : String(err),
+        stageLabel: isAbort ? '12MP render cancelled' : 'Render failed',
+        error: isAbort ? null : err instanceof Error ? err.message : String(err),
       });
+    } finally {
+      abortControllerRef.current = null;
     }
   };
 
@@ -130,7 +170,7 @@ export function ExportModal() {
       currentFrame: 0,
       totalFrames,
       percent: 0,
-      stageLabel: `Preparing ${totalFrames} deterministic frames at 60 fps...`,
+      stageLabel: `Preparing ${totalFrames} frames @ 60 fps (${blurSamples}× temporal supersampling)...`,
       error: null,
       lastCompletedFile: null,
     });
@@ -142,6 +182,8 @@ export function ExportModal() {
         durationSec: videoDurationSec,
         aspectRatio: exportAspect,
         msaaSamples,
+        motionBlur: motionBlurQuality,
+        shutterAngleDeg,
         signal: controller.signal,
         onProgress: (frame, total, stageLabel) => {
           setRenderProgress({
@@ -193,7 +235,11 @@ export function ExportModal() {
               Offline Studio Renderer
             </h2>
             <p className="text-xs font-mono tabular-nums text-zinc-400 mt-0.5">
-              {activeRes.width}×{activeRes.height} · MSAA · Zero Dropped Frames
+              {mode === 'still'
+                ? `${activeStillRes.width}×${activeStillRes.height} · 12MP · 16× SSAA · Dithered`
+                : `${activeVideoRes.width}×${activeVideoRes.height} · 60fps · 24 Mbps · ${
+                    blurSamples > 1 ? `${blurSamples}× Motion Blur` : 'MSAA'
+                  }`}
             </p>
           </div>
           <button
@@ -212,8 +258,8 @@ export function ExportModal() {
           <div className="grid grid-cols-2 gap-1.5 p-1 rounded-xl bg-[#0b0d10] border border-white/10">
             {(
               [
-                { id: 'still', label: '1080p Still Image', icon: Camera },
-                { id: 'video', label: '1080p 60fps Video', icon: Film },
+                { id: 'still', label: '12MP Studio Still', icon: Camera },
+                { id: 'video', label: '1080p 60fps Cinema', icon: Film },
               ] as Array<{ id: ExportMode; label: string; icon: typeof Camera }>
             ).map((tab) => {
               const Icon = tab.icon;
@@ -245,7 +291,8 @@ export function ExportModal() {
             <span className="text-xs font-medium text-zinc-300">Aspect Ratio & Output Size</span>
             <div className="grid grid-cols-3 gap-1.5">
               {ASPECT_OPTIONS.map((ratio) => {
-                const info = EXPORT_RESOLUTIONS[ratio];
+                const info =
+                  mode === 'still' ? STILL_12MP_RESOLUTIONS[ratio] : EXPORT_RESOLUTIONS[ratio];
                 const active = exportAspect === ratio;
                 return (
                   <button
@@ -272,7 +319,7 @@ export function ExportModal() {
           {mode === 'still' ? (
             <div className="space-y-4">
               <div className="space-y-2">
-                <span className="text-xs font-medium text-zinc-300">Image Format</span>
+                <span className="text-xs font-medium text-zinc-300">Image Format (12MP Master)</span>
                 <div className="grid grid-cols-2 gap-2">
                   {(['png', 'jpg'] as const).map((fmt) => (
                     <button
@@ -286,7 +333,7 @@ export function ExportModal() {
                           : 'bg-[#0b0d10] border-white/10 text-zinc-400 hover:text-zinc-200'
                       }`}
                     >
-                      {fmt} {fmt === 'png' ? '(Lossless)' : '(High Quality)'}
+                      {fmt} {fmt === 'png' ? '(Lossless)' : '(98% Master)'}
                     </button>
                   ))}
                 </div>
@@ -296,7 +343,7 @@ export function ExportModal() {
                 <div>
                   <div className="text-xs font-semibold text-zinc-200">Transparent Background</div>
                   <div className="text-[11px] text-zinc-400 mt-0.5">
-                    Exports clean alpha-channel PNG cutout without studio backdrop
+                    Clean premultiplied alpha cutout — zero floor shadows or edge fringing
                   </div>
                 </div>
                 <input
@@ -311,16 +358,16 @@ export function ExportModal() {
           ) : (
             <div className="space-y-4">
               {/* Animation Preset */}
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 <span className="text-xs font-medium text-zinc-300">Camera & Motion Choreography</span>
-                <div className="space-y-2">
+                <div className="space-y-1.5">
                   {VIDEO_PRESETS.map((preset) => (
                     <button
                       key={preset.id}
                       type="button"
                       disabled={renderProgress.isRendering}
                       onClick={() => setVideoPreset(preset.id)}
-                      className={`w-full text-left p-3 rounded-xl border transition-colors ${
+                      className={`w-full text-left px-3 py-2 rounded-xl border transition-colors ${
                         videoPreset === preset.id
                           ? 'bg-indigo-600/18 border-indigo-400/50 text-zinc-100'
                           : 'bg-[#0b0d10] border-white/10 text-zinc-300 hover:border-white/20'
@@ -335,10 +382,55 @@ export function ExportModal() {
                 </div>
               </div>
 
+              {/* Temporal Supersampling Motion Blur Controls */}
+              <div className="space-y-2">
+                <span className="text-xs font-medium text-zinc-300">
+                  Motion Blur (Temporal Supersampling)
+                </span>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {MOTION_BLUR_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      disabled={renderProgress.isRendering}
+                      onClick={() => setMotionBlurQuality(opt.id)}
+                      className={`min-h-[44px] py-2 px-2 rounded-lg border text-center transition-colors ${
+                        motionBlurQuality === opt.id
+                          ? 'bg-indigo-600/20 border-indigo-400/50 text-indigo-200'
+                          : 'bg-[#0b0d10] border-white/10 text-zinc-400 hover:text-zinc-200'
+                      }`}
+                    >
+                      <div className="text-xs font-semibold">{opt.label}</div>
+                      <div className="text-[10px] font-mono opacity-75">{opt.sub}</div>
+                    </button>
+                  ))}
+                </div>
+
+                {motionBlurQuality !== 'off' && (
+                  <div className="grid grid-cols-3 gap-1.5 pt-1">
+                    {SHUTTER_OPTIONS.map((shutter) => (
+                      <button
+                        key={shutter.deg}
+                        type="button"
+                        disabled={renderProgress.isRendering}
+                        onClick={() => setShutterAngleDeg(shutter.deg)}
+                        className={`min-h-[34px] py-1.5 px-2 rounded-lg border text-[11px] font-mono tabular-nums transition-colors ${
+                          shutterAngleDeg === shutter.deg
+                            ? 'bg-indigo-600/18 border-indigo-400/45 text-indigo-200'
+                            : 'bg-[#0b0d10] border-white/10 text-zinc-400 hover:text-zinc-200'
+                        }`}
+                      >
+                        {shutter.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
               {/* Duration / Frame Count */}
               <div className="space-y-2">
                 <span className="text-xs font-medium text-zinc-300">
-                  Duration (Locked 60 fps · Slow Eased Pacing)
+                  Duration (Locked 60 fps · 24 Mbps · Seamless Loop)
                 </span>
                 <div className="grid grid-cols-4 gap-1.5">
                   {([12, 16, 20, 24] as const).map((sec) => (
@@ -432,7 +524,7 @@ export function ExportModal() {
                 {mode === 'still' ? (
                   <>
                     <Camera className="w-3.5 h-3.5" />
-                    Export {activeRes.width}×{activeRes.height} {stillFormat.toUpperCase()}
+                    Export 12MP ({activeRes.width}×{activeRes.height}) {stillFormat.toUpperCase()}
                   </>
                 ) : (
                   <>

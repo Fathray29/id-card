@@ -2,14 +2,14 @@ import * as THREE from 'three';
 import type { LayerId, LayerTransform, SampleTemplateId } from '../store/useStudioStore';
 
 /**
- * Exact calibrated canvas resolutions:
- * - Card Front & Back: 648 x 1027 px (5.4 : 8.56 cm at ~305 DPI)
- * - Lanyard Strap:     2400 x 60 px  (80.0 : 2.0 cm = 40 : 1 ratio)
+ * Studio 600-DPI master canvas resolutions for artifact-free 12MP stills & macro renders:
+ * - Card Front & Back: 1296 x 2054 px (5.4 : 8.56 cm at ~610 DPI)
+ * - Lanyard Strap:     4000 x 100 px  (80.0 : 2.0 cm = 40 : 1 ratio, <= 4096 GPU safe limit)
  */
 export const LAYER_DIMENSIONS: Record<LayerId, { width: number; height: number }> = {
-  front: { width: 648, height: 1027 },
-  back: { width: 648, height: 1027 },
-  lanyard: { width: 2400, height: 60 },
+  front: { width: 1296, height: 2054 },
+  back: { width: 1296, height: 2054 },
+  lanyard: { width: 4000, height: 100 },
 };
 
 // Simple deterministic PRNG for crisp barcode / QR matrix generation
@@ -180,7 +180,7 @@ function drawStylizedPortrait(
 }
 
 /**
- * Draws crisp, print-grade 300-DPI procedural templates onto the target canvas.
+ * Draws crisp, print-grade 600-DPI vector-scaled procedural templates onto the target canvas.
  */
 export function drawProceduralTemplate(
   ctx: CanvasRenderingContext2D,
@@ -193,17 +193,24 @@ export function drawProceduralTemplate(
   ctx.clearRect(0, 0, w, h);
 
   if (layerId === 'lanyard') {
-    drawLanyardTemplate(ctx, w, h, template, bgColor);
+    const baseW = 2400;
+    const baseH = 60;
+    ctx.scale(w / baseW, h / baseH);
+    drawLanyardTemplate(ctx, baseW, baseH, template, bgColor);
     ctx.restore();
     return;
   }
 
+  const baseW = 648;
+  const baseH = 1027;
+  ctx.scale(w / baseW, h / baseH);
+
   if (template === 'tech-vip') {
-    drawTechVipCard(ctx, w, h, layerId === 'front', bgColor);
+    drawTechVipCard(ctx, baseW, baseH, layerId === 'front', bgColor);
   } else if (template === 'corporate-sec') {
-    drawCorporateSecCard(ctx, w, h, layerId === 'front', bgColor);
+    drawCorporateSecCard(ctx, baseW, baseH, layerId === 'front', bgColor);
   } else {
-    drawMinimalStaffCard(ctx, w, h, layerId === 'front', bgColor);
+    drawMinimalStaffCard(ctx, baseW, baseH, layerId === 'front', bgColor);
   }
   ctx.restore();
 }
@@ -884,11 +891,11 @@ function drawImageWithTransform(
 export function createConfiguredCanvasTexture(
   canvas: HTMLCanvasElement,
   layerId: LayerId,
-  maxAnisotropy = 8
+  maxAnisotropy = 16
 ): THREE.CanvasTexture {
   const tex = new THREE.CanvasTexture(canvas);
   tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = Math.min(8, Math.max(1, maxAnisotropy));
+  tex.anisotropy = Math.min(16, Math.max(1, maxAnisotropy));
   tex.minFilter = THREE.LinearMipmapLinearFilter;
   tex.magFilter = THREE.LinearFilter;
   tex.generateMipmaps = true;
