@@ -176,19 +176,23 @@ export function cubicHermite(
   return h00 * p0 + h10 * m0 + h01 * p1 + h11 * m1;
 }
 
+export type PlacementSceneId = 'studio' | 'table' | 'torso' | 'hanger';
+
 /** Orbital camera waypoint along the continuous global Hermite spline path */
 interface OrbitalWaypoint {
   t: number;
-  azimuthDeg: number; // Strictly monotonic negative: +18° -> ... -> -342° (exact 360° wrap, zero reversals!)
+  azimuthDeg: number; // Strictly monotonic negative: exact 360° wrap, zero reversals!
   radius: number; // Horizontal XZ distance from target (cm)
   camY: number; // Camera height (cm)
+  targetX: number; // Look-at X (cm)
   targetY: number; // Look-at height (cm)
+  targetZ: number; // Look-at Z (cm)
   fov: number;
   shotName: CameraKeyframePose['shotName'];
 }
 
 /**
- * Seamless, Zero-Hiccup 5-Act Continuous Global Spline Path:
+ * Seamless, Zero-Hiccup 5-Act Continuous Global Spline Path (Studio):
  *  - Strictly monotonic azimuth (+18° -> -342°) eliminates direction reversals & snap kinks.
  *  - Waypoints are spatially denser during hero showcases (Front, Back, Macro) and wider across
  *    transitions, so the global C1 Fritsch-Butland (PCHIP) Hermite spline naturally glides smoothly
@@ -197,26 +201,99 @@ interface OrbitalWaypoint {
  */
 const CINEMATIC_REEL_WAYPOINTS: OrbitalWaypoint[] = [
   // Act 1 (0.00 -> 0.13): Full Establishing Drift (entire 80cm lanyard + badge framed cleanly)
-  { t: 0.0, azimuthDeg: 18, radius: 84.0, camY: 17.5, targetY: 16.5, fov: 36.0, shotName: 'Full' },
-  { t: 0.13, azimuthDeg: 10, radius: 74.0, camY: 15.4, targetY: 14.4, fov: 35.4, shotName: 'Full' },
+  { t: 0.0, azimuthDeg: 18, radius: 84.0, camY: 17.5, targetX: 0, targetY: 16.5, targetZ: 0, fov: 36.0, shotName: 'Full' },
+  { t: 0.13, azimuthDeg: 10, radius: 74.0, camY: 15.4, targetX: 0, targetY: 14.4, targetZ: 0, fov: 35.4, shotName: 'Full' },
 
   // Seamless Push-In (15%) -> Act 2 (0.28 -> 0.39): Front Hero Showcase Sweep
-  { t: 0.28, azimuthDeg: 6, radius: 21.4, camY: 1.15, targetY: 0.0, fov: 34.0, shotName: 'Front' },
-  { t: 0.39, azimuthDeg: -10, radius: 20.6, camY: 0.7, targetY: -0.2, fov: 33.8, shotName: 'Front' },
+  { t: 0.28, azimuthDeg: 6, radius: 21.4, camY: 1.15, targetX: 0, targetY: 0.0, targetZ: 0, fov: 34.0, shotName: 'Front' },
+  { t: 0.39, azimuthDeg: -10, radius: 20.6, camY: 0.7, targetX: 0, targetY: -0.2, targetZ: 0, fov: 33.8, shotName: 'Front' },
 
   // Seamless 180° Orbital Sweep (14%) -> Act 3 (0.53 -> 0.64): Back Hero Showcase Sweep
-  { t: 0.53, azimuthDeg: -168, radius: 21.4, camY: 1.05, targetY: 0.0, fov: 34.0, shotName: 'Back' },
-  { t: 0.64, azimuthDeg: -192, radius: 20.6, camY: 0.65, targetY: -0.2, fov: 33.8, shotName: 'Back' },
+  { t: 0.53, azimuthDeg: -168, radius: 21.4, camY: 1.05, targetX: 0, targetY: 0.0, targetZ: 0, fov: 34.0, shotName: 'Back' },
+  { t: 0.64, azimuthDeg: -192, radius: 20.6, camY: 0.65, targetX: 0, targetY: -0.2, targetZ: 0, fov: 33.8, shotName: 'Back' },
 
   // Seamless Arc into Macro (12%) -> Act 4 (0.76 -> 0.86): Macro Crane Tilt (Top: Weave/Clasp -> Bottom: Card Detail)
-  { t: 0.76, azimuthDeg: -334, radius: 9.4, camY: 7.0, targetY: 6.0, fov: 32.0, shotName: 'Macro Top' },
-  { t: 0.86, azimuthDeg: -339, radius: 11.2, camY: -2.2, targetY: -2.6, fov: 32.2, shotName: 'Macro Bottom' },
+  { t: 0.76, azimuthDeg: -334, radius: 9.4, camY: 7.0, targetX: 0, targetY: 6.0, targetZ: 0, fov: 32.0, shotName: 'Macro Top' },
+  { t: 0.86, azimuthDeg: -339, radius: 11.2, camY: -2.2, targetX: 0, targetY: -2.6, targetZ: 0, fov: 32.2, shotName: 'Macro Bottom' },
 
   // Seamless Silky Pull-Back (14%) Returning to Exact Starting Pose (+18° === -342° mod 360°)
-  { t: 1.0, azimuthDeg: -342, radius: 84.0, camY: 17.5, targetY: 16.5, fov: 36.0, shotName: 'Full' },
+  { t: 1.0, azimuthDeg: -342, radius: 84.0, camY: 17.5, targetX: 0, targetY: 16.5, targetZ: 0, fov: 36.0, shotName: 'Full' },
 ];
 
-type NumericChannel = 'azimuthDeg' | 'radius' | 'camY' | 'targetY' | 'fov';
+/** Table Flat-Lay Placement Spline (strictly camY >= 11.5 cm above walnut desk & leather mat) */
+const TABLE_REEL_WAYPOINTS: OrbitalWaypoint[] = [
+  // Act 1: Editorial overhead establishing shot of walnut desk, mat, card & lanyard
+  { t: 0.0, azimuthDeg: 14, radius: 44.0, camY: 42.0, targetX: 0.5, targetY: 0.8, targetZ: -4.5, fov: 35.0, shotName: 'Full' },
+  { t: 0.13, azimuthDeg: 5, radius: 39.5, camY: 37.5, targetX: -0.6, targetY: 0.7, targetZ: -3.0, fov: 34.6, shotName: 'Full' },
+
+  // Act 2: Hero card close-up on dark slate leather mat
+  { t: 0.28, azimuthDeg: -4, radius: 17.5, camY: 19.5, targetX: -4.2, targetY: 0.5, targetZ: 6.2, fov: 33.8, shotName: 'Front' },
+  { t: 0.39, azimuthDeg: -22, radius: 16.5, camY: 17.8, targetX: -4.0, targetY: 0.5, targetZ: 5.8, fov: 33.6, shotName: 'Front' },
+
+  // Act 3: Oblique sweep showcasing the natural walnut grain, right-curling lanyard & brass pen
+  { t: 0.53, azimuthDeg: -146, radius: 28.5, camY: 17.5, targetX: 2.0, targetY: 0.7, targetZ: -4.0, fov: 34.0, shotName: 'Back' },
+  { t: 0.64, azimuthDeg: -188, radius: 27.0, camY: 16.0, targetX: 1.2, targetY: 0.7, targetZ: -5.2, fov: 33.8, shotName: 'Back' },
+
+  // Act 4: Low macro glide across swivel clasp, crimp & card detail
+  { t: 0.76, azimuthDeg: -322, radius: 12.2, camY: 12.4, targetX: -3.2, targetY: 0.6, targetZ: 1.4, fov: 32.0, shotName: 'Macro Top' },
+  { t: 0.86, azimuthDeg: -334, radius: 13.0, camY: 11.8, targetX: -4.2, targetY: 0.5, targetZ: 6.5, fov: 32.2, shotName: 'Macro Bottom' },
+
+  // Seamless return to establishing desk pose (+14° === -346° mod 360°)
+  { t: 1.0, azimuthDeg: -346, radius: 44.0, camY: 42.0, targetX: 0.5, targetY: 0.8, targetZ: -4.5, fov: 35.0, shotName: 'Full' },
+];
+
+/** Tailor's Torso Placement Spline (clears linen bust generously on all 360° angles) */
+const TORSO_REEL_WAYPOINTS: OrbitalWaypoint[] = [
+  // Act 1: Waist-up bust + walnut finial establishing shot
+  { t: 0.0, azimuthDeg: 18, radius: 82.0, camY: 15.5, targetX: 0, targetY: 12.0, targetZ: -7.5, fov: 36.0, shotName: 'Full' },
+  { t: 0.13, azimuthDeg: 10, radius: 75.0, camY: 14.0, targetX: 0, targetY: 11.0, targetZ: -7.0, fov: 35.4, shotName: 'Full' },
+
+  // Act 2: Front chest badge hero close-up
+  { t: 0.28, azimuthDeg: 6, radius: 25.5, camY: 1.8, targetX: 0, targetY: 0.6, targetZ: -0.5, fov: 34.0, shotName: 'Front' },
+  { t: 0.39, azimuthDeg: -10, radius: 24.5, camY: 1.2, targetX: 0, targetY: 0.2, targetZ: -0.5, fov: 33.8, shotName: 'Front' },
+
+  // Act 3: Rear 3/4 neck-collar drape showcase (generous radius around torso back)
+  { t: 0.53, azimuthDeg: -158, radius: 52.0, camY: 36.0, targetX: 0, targetY: 29.0, targetZ: -9.5, fov: 34.0, shotName: 'Back' },
+  { t: 0.64, azimuthDeg: -198, radius: 50.0, camY: 34.5, targetX: 0, targetY: 28.5, targetZ: -9.5, fov: 33.8, shotName: 'Back' },
+
+  // Act 4: Macro swivel clasp, linen chest weave & card surface
+  { t: 0.76, azimuthDeg: -332, radius: 14.8, camY: 7.4, targetX: 0, targetY: 6.2, targetZ: -0.4, fov: 32.0, shotName: 'Macro Top' },
+  { t: 0.86, azimuthDeg: -340, radius: 16.5, camY: -1.2, targetX: 0, targetY: -1.8, targetZ: -0.4, fov: 32.2, shotName: 'Macro Bottom' },
+
+  // Seamless return to waist-up bust establishing pose
+  { t: 1.0, azimuthDeg: -342, radius: 82.0, camY: 15.5, targetX: 0, targetY: 12.0, targetZ: -7.5, fov: 36.0, shotName: 'Full' },
+];
+
+/** Boutique Coat Hanger Placement Spline (highlights walnut grain crest, ferrule & hanging card) */
+const HANGER_REEL_WAYPOINTS: OrbitalWaypoint[] = [
+  // Act 1: Full boutique rack + walnut coat hanger + hanging badge
+  { t: 0.0, azimuthDeg: 18, radius: 88.0, camY: 20.0, targetX: 0, targetY: 18.8, targetZ: 0, fov: 36.0, shotName: 'Full' },
+  { t: 0.13, azimuthDeg: 10, radius: 79.0, camY: 18.0, targetX: 0, targetY: 17.0, targetZ: 0, fov: 35.4, shotName: 'Full' },
+
+  // Act 2: Front badge hero
+  { t: 0.28, azimuthDeg: 6, radius: 22.0, camY: 1.2, targetX: 0, targetY: 0.0, targetZ: 0, fov: 34.0, shotName: 'Front' },
+  { t: 0.39, azimuthDeg: -10, radius: 21.2, camY: 0.8, targetX: 0, targetY: -0.2, targetZ: 0, fov: 33.8, shotName: 'Front' },
+
+  // Act 3: Clean 180° back side reveal
+  { t: 0.53, azimuthDeg: -168, radius: 22.0, camY: 1.1, targetX: 0, targetY: 0.0, targetZ: 0, fov: 34.0, shotName: 'Back' },
+  { t: 0.64, azimuthDeg: -192, radius: 21.2, camY: 0.7, targetX: 0, targetY: -0.2, targetZ: 0, fov: 33.8, shotName: 'Back' },
+
+  // Act 4: Macro crane from walnut coat hanger crest down to swivel clasp
+  { t: 0.76, azimuthDeg: -334, radius: 18.0, camY: 44.5, targetX: 0, targetY: 42.0, targetZ: 0, fov: 32.0, shotName: 'Macro Top' },
+  { t: 0.86, azimuthDeg: -340, radius: 12.2, camY: 6.8, targetX: 0, targetY: 5.8, targetZ: 0, fov: 32.2, shotName: 'Macro Bottom' },
+
+  // Seamless return to full boutique rack establishing pose
+  { t: 1.0, azimuthDeg: -342, radius: 88.0, camY: 20.0, targetX: 0, targetY: 18.8, targetZ: 0, fov: 36.0, shotName: 'Full' },
+];
+
+const WAYPOINTS_BY_PLACEMENT: Record<PlacementSceneId, OrbitalWaypoint[]> = {
+  studio: CINEMATIC_REEL_WAYPOINTS,
+  table: TABLE_REEL_WAYPOINTS,
+  torso: TORSO_REEL_WAYPOINTS,
+  hanger: HANGER_REEL_WAYPOINTS,
+};
+
+type NumericChannel = 'azimuthDeg' | 'radius' | 'camY' | 'targetX' | 'targetY' | 'targetZ' | 'fov';
 
 /**
  * Computes global C1-continuous Fritsch-Butland (PCHIP) monotone Hermite velocity slopes `dv/du`
@@ -276,20 +353,33 @@ function computeGlobalHermiteSlopes(
   return slopes;
 }
 
-const PERIODIC_SLOPES: Record<NumericChannel, number[]> = {
-  azimuthDeg: computeGlobalHermiteSlopes(CINEMATIC_REEL_WAYPOINTS, 'azimuthDeg', true),
-  radius: computeGlobalHermiteSlopes(CINEMATIC_REEL_WAYPOINTS, 'radius', true),
-  camY: computeGlobalHermiteSlopes(CINEMATIC_REEL_WAYPOINTS, 'camY', true),
-  targetY: computeGlobalHermiteSlopes(CINEMATIC_REEL_WAYPOINTS, 'targetY', true),
-  fov: computeGlobalHermiteSlopes(CINEMATIC_REEL_WAYPOINTS, 'fov', true),
+function buildSlopeTable(
+  waypoints: OrbitalWaypoint[],
+  periodic: boolean
+): Record<NumericChannel, number[]> {
+  return {
+    azimuthDeg: computeGlobalHermiteSlopes(waypoints, 'azimuthDeg', periodic),
+    radius: computeGlobalHermiteSlopes(waypoints, 'radius', periodic),
+    camY: computeGlobalHermiteSlopes(waypoints, 'camY', periodic),
+    targetX: computeGlobalHermiteSlopes(waypoints, 'targetX', periodic),
+    targetY: computeGlobalHermiteSlopes(waypoints, 'targetY', periodic),
+    targetZ: computeGlobalHermiteSlopes(waypoints, 'targetZ', periodic),
+    fov: computeGlobalHermiteSlopes(waypoints, 'fov', periodic),
+  };
+}
+
+const PERIODIC_SLOPES_BY_PLACEMENT: Record<PlacementSceneId, Record<NumericChannel, number[]>> = {
+  studio: buildSlopeTable(CINEMATIC_REEL_WAYPOINTS, true),
+  table: buildSlopeTable(TABLE_REEL_WAYPOINTS, true),
+  torso: buildSlopeTable(TORSO_REEL_WAYPOINTS, true),
+  hanger: buildSlopeTable(HANGER_REEL_WAYPOINTS, true),
 };
 
-const CLAMPED_SLOPES: Record<NumericChannel, number[]> = {
-  azimuthDeg: computeGlobalHermiteSlopes(CINEMATIC_REEL_WAYPOINTS, 'azimuthDeg', false),
-  radius: computeGlobalHermiteSlopes(CINEMATIC_REEL_WAYPOINTS, 'radius', false),
-  camY: computeGlobalHermiteSlopes(CINEMATIC_REEL_WAYPOINTS, 'camY', false),
-  targetY: computeGlobalHermiteSlopes(CINEMATIC_REEL_WAYPOINTS, 'targetY', false),
-  fov: computeGlobalHermiteSlopes(CINEMATIC_REEL_WAYPOINTS, 'fov', false),
+const CLAMPED_SLOPES_BY_PLACEMENT: Record<PlacementSceneId, Record<NumericChannel, number[]>> = {
+  studio: buildSlopeTable(CINEMATIC_REEL_WAYPOINTS, false),
+  table: buildSlopeTable(TABLE_REEL_WAYPOINTS, false),
+  torso: buildSlopeTable(TORSO_REEL_WAYPOINTS, false),
+  hanger: buildSlopeTable(HANGER_REEL_WAYPOINTS, false),
 };
 
 /**
@@ -303,28 +393,32 @@ function wrapProgress01(p: number): number {
 
 /**
  * Evaluates a continuous, zero-hiccup global C1 PCHIP Cubic Hermite Spline camera pose
- * at normalized progress `u`.
+ * at normalized progress `u` for the active placement scene.
  *  - `periodic = true` (default): continuous velocity across every scene AND across loop seam 1.0 -> 0.0.
  *  - `periodic = false`: smooth zero-velocity ease at u=0 and u=1 for seamless handoff into 360° phase.
  */
 export function evaluateHermiteCameraPath(
   progress: number,
   aspect = 16 / 9,
-  periodic = true
+  periodic = true,
+  placement: PlacementSceneId = 'studio'
 ): CameraKeyframePose {
   const u = periodic ? (progress === 1 ? 1 : wrapProgress01(progress)) : clamp01(progress);
-  const slopeTable = periodic ? PERIODIC_SLOPES : CLAMPED_SLOPES;
+  const waypoints = WAYPOINTS_BY_PLACEMENT[placement] ?? CINEMATIC_REEL_WAYPOINTS;
+  const slopeTable = periodic
+    ? (PERIODIC_SLOPES_BY_PLACEMENT[placement] ?? PERIODIC_SLOPES_BY_PLACEMENT.studio)
+    : (CLAMPED_SLOPES_BY_PLACEMENT[placement] ?? CLAMPED_SLOPES_BY_PLACEMENT.studio);
 
-  let idx = CINEMATIC_REEL_WAYPOINTS.length - 2;
-  for (let i = 0; i < CINEMATIC_REEL_WAYPOINTS.length - 1; i++) {
-    if (u >= CINEMATIC_REEL_WAYPOINTS[i].t && u <= CINEMATIC_REEL_WAYPOINTS[i + 1].t) {
+  let idx = waypoints.length - 2;
+  for (let i = 0; i < waypoints.length - 1; i++) {
+    if (u >= waypoints[i].t && u <= waypoints[i + 1].t) {
       idx = i;
       break;
     }
   }
 
-  const w0 = CINEMATIC_REEL_WAYPOINTS[idx];
-  const w1 = CINEMATIC_REEL_WAYPOINTS[idx + 1];
+  const w0 = waypoints[idx];
+  const w1 = waypoints[idx + 1];
   const dt = Math.max(1e-6, w1.t - w0.t);
   // Linear local parameter preserves exact global C1 velocity continuity across every waypoint!
   const localT = clamp01((u - w0.t) / dt);
@@ -342,7 +436,9 @@ export function evaluateHermiteCameraPath(
   const portraitBoost = aspect < 0.85 ? 1.24 : aspect < 1.15 ? 1.08 : 1.0;
   const radius = sampleChannel('radius') * portraitBoost;
   const camY = sampleChannel('camY');
+  const targetX = sampleChannel('targetX');
   const targetY = sampleChannel('targetY');
+  const targetZ = sampleChannel('targetZ');
   const fov = sampleChannel('fov');
 
   // C2 smooth periodic micro-breath (zero value & zero slope when clamped, periodic when looping)
@@ -352,14 +448,14 @@ export function evaluateHermiteCameraPath(
 
   return {
     position: {
-      x: Math.sin(azRad) * radius,
+      x: targetX + Math.sin(azRad) * radius,
       y: camY + microBreath,
-      z: Math.cos(azRad) * radius,
+      z: targetZ + Math.cos(azRad) * radius,
     },
     target: {
-      x: 0,
+      x: targetX,
       y: targetY,
-      z: 0,
+      z: targetZ,
     },
     fov,
     shotName: localT < 0.5 ? w0.shotName : w1.shotName,
@@ -378,7 +474,8 @@ export const evaluateCinematicCamera = evaluateHermiteCameraPath;
  */
 export function evaluateCompleteShowcaseFrame(
   progress: number,
-  aspect = 16 / 9
+  aspect = 16 / 9,
+  placement: PlacementSceneId = 'studio'
 ): { cameraPose: CameraKeyframePose; turntableY: number } {
   const u = progress === 1 ? 1 : wrapProgress01(progress);
   const split = 0.70;
@@ -386,7 +483,7 @@ export function evaluateCompleteShowcaseFrame(
   if (u <= split) {
     const cinematicU = u / split;
     return {
-      cameraPose: evaluateHermiteCameraPath(cinematicU, aspect, false),
+      cameraPose: evaluateHermiteCameraPath(cinematicU, aspect, false, placement),
       turntableY: 0,
     };
   }
@@ -394,23 +491,27 @@ export function evaluateCompleteShowcaseFrame(
   // Phase 2: Slow, smooth C2 quintic-eased 360° showcase with C2 sin² breathing (zero velocity kinks!)
   const spinU = clamp01((u - split) / (1 - split));
   const easedSpin = easeInOutQuint(spinU);
-  const baseFull = evaluateHermiteCameraPath(0, aspect, false);
+  const baseFull = evaluateHermiteCameraPath(0, aspect, false, placement);
 
   // sin²(π * spinU) has zero value AND zero derivative at spinU=0 and spinU=1 (zero hiccup!)
   const smoothBell = Math.pow(Math.sin(spinU * Math.PI), 2);
   const breathFactor = 1.0 - smoothBell * 0.065;
 
+  const dx = baseFull.position.x - baseFull.target.x;
+  const dz = baseFull.position.z - baseFull.target.z;
+  const targetDrop = placement === 'table' ? 0 : smoothBell * 0.65;
+
   return {
     cameraPose: {
       position: {
-        x: baseFull.position.x * breathFactor,
+        x: baseFull.target.x + dx * breathFactor,
         y: baseFull.position.y - smoothBell * 1.05,
-        z: baseFull.position.z * breathFactor,
+        z: baseFull.target.z + dz * breathFactor,
       },
       target: {
-        x: 0,
-        y: baseFull.target.y - smoothBell * 0.65,
-        z: 0,
+        x: baseFull.target.x,
+        y: baseFull.target.y - targetDrop,
+        z: baseFull.target.z,
       },
       fov: baseFull.fov,
       shotName: '360° Showcase',
@@ -451,6 +552,7 @@ export interface LiveStepOptions {
   aspect?: number;
   deterministicTime?: number;
   params?: SpringParams;
+  placementScene?: PlacementSceneId;
 }
 
 /**
@@ -468,6 +570,7 @@ export function stepLiveSimulation(
     options.deterministicTime !== undefined
       ? options.deterministicTime
       : state.simTime + safeDt;
+  const placement = options.placementScene ?? 'studio';
 
   if (options.previewReel) {
     const duration = options.reelDurationSec ?? 16;
@@ -476,7 +579,7 @@ export function stepLiveSimulation(
     const aspect = options.aspect ?? 16 / 9;
 
     if (options.previewPreset === 'cinematic-360') {
-      const combined = evaluateCompleteShowcaseFrame(progress, aspect);
+      const combined = evaluateCompleteShowcaseFrame(progress, aspect, placement);
       return {
         thetaY: Math.sin(phase * 2) * 0.035,
         omegaY: 0,
@@ -492,7 +595,7 @@ export function stepLiveSimulation(
       };
     }
 
-    const pose = evaluateHermiteCameraPath(progress, aspect, true);
+    const pose = evaluateHermiteCameraPath(progress, aspect, true, placement);
     return {
       thetaY: Math.sin(phase * 2) * 0.038,
       omegaY: 0,
@@ -575,7 +678,8 @@ export function stepOfflinePresetFrame(
   frameIndex: number,
   totalFrames: number,
   fps = 24,
-  aspect = 16 / 9
+  aspect = 16 / 9,
+  placement: PlacementSceneId = 'studio'
 ): SpringState {
   const safeTotal = Math.max(1, totalFrames);
   const rawProgress = frameIndex / safeTotal;
@@ -589,7 +693,7 @@ export function stepOfflinePresetFrame(
   const neckSwayX = Math.cos(phase) * 0.007;
 
   if (preset === 'cinematic-reel') {
-    const cameraPose = evaluateHermiteCameraPath(rawProgress, aspect, true);
+    const cameraPose = evaluateHermiteCameraPath(rawProgress, aspect, true, placement);
     const loopPhase = wrappedProgress * Math.PI * 2;
     return {
       thetaY: Math.sin(loopPhase * 2) * 0.038,
@@ -607,7 +711,7 @@ export function stepOfflinePresetFrame(
   }
 
   if (preset === 'cinematic-360') {
-    const combined = evaluateCompleteShowcaseFrame(rawProgress, aspect);
+    const combined = evaluateCompleteShowcaseFrame(rawProgress, aspect, placement);
     const loopPhase = wrappedProgress * Math.PI * 2;
     return {
       thetaY: Math.sin(loopPhase * 2) * 0.035,
@@ -624,6 +728,11 @@ export function stepOfflinePresetFrame(
     };
   }
 
+  // For real-world placement scenes (table / torso / hanger), always lock a clean collision-free
+  // establishing camera pose for Turntable, Pendulum Flip, and Parallax Sway renders.
+  const placementEstablishingPose: CameraKeyframePose | null =
+    placement === 'studio' ? null : evaluateHermiteCameraPath(0, aspect, false, placement);
+
   if (preset === 'turntable') {
     // Seamless C2 continuous 360° turntable with zero seam jump
     const eased = wrappedProgress * 0.45 + easeInOutQuint(wrappedProgress) * 0.55;
@@ -638,7 +747,7 @@ export function stepOfflinePresetFrame(
       neckSwayX,
       turntableY: eased * Math.PI * 2,
       simTime: t,
-      cameraPose: null,
+      cameraPose: placementEstablishingPose,
     };
   }
 
@@ -664,7 +773,7 @@ export function stepOfflinePresetFrame(
       neckSwayX,
       turntableY: gentleOrbit,
       simTime: t,
-      cameraPose: null,
+      cameraPose: placementEstablishingPose,
     };
   }
 
@@ -683,6 +792,6 @@ export function stepOfflinePresetFrame(
     neckSwayX: Math.cos(wrappedProgress * Math.PI * 2) * 0.01,
     turntableY: swayAngle,
     simTime: t,
-    cameraPose: null,
+    cameraPose: placementEstablishingPose,
   };
 }

@@ -13,7 +13,9 @@ import {
 } from '../utils/performanceMonitor';
 
 import type { StudioPresetConfigData } from '../utils/presetSerializer';
+import type { PlacementSceneId } from '../geometry/placementGeometry';
 
+export type { PlacementSceneId };
 export type LayerId = 'front' | 'back' | 'lanyard';
 export type FitMode = 'cover' | 'contain' | 'stretch';
 export type CardFinish = 'glossy' | 'matte';
@@ -116,6 +118,8 @@ interface StudioState {
   setHologramIntensity: (intensity: number) => void;
   studioBackdrop: 'obsidian' | 'slate' | 'studio-light';
   setStudioBackdrop: (backdrop: 'obsidian' | 'slate' | 'studio-light') => void;
+  placementScene: PlacementSceneId;
+  setPlacementScene: (placement: PlacementSceneId) => void;
 
   // Viewport & Rig controls
   showLanyard: boolean;
@@ -406,6 +410,15 @@ export const useStudioStore = create<StudioState>((set, get) => ({
 
   studioBackdrop: 'obsidian',
   setStudioBackdrop: (studioBackdrop) => set({ studioBackdrop }),
+
+  placementScene: 'studio',
+  setPlacementScene: (placementScene) =>
+    set((state) => ({
+      placementScene,
+      previewReel: false,
+      cameraPreset: placementScene === 'studio' ? 'front' : 'full',
+      cameraRequestNonce: state.cameraRequestNonce + 1,
+    })),
 
   showLanyard: true,
   toggleLanyard: () => set((state) => ({ showLanyard: !state.showLanyard })),

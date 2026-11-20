@@ -97,9 +97,9 @@ test('Lanyard CatmullRomCurve3 normalizes to exact 80.00 cm (+/- 0.01 cm) with a
   const end = computeApexCrossover(1.0);
   const mid = computeApexCrossover(0.5);
 
-  assert.ok(start.zOffset > 0.07);
-  assert.ok(end.zOffset < -0.07);
-  assert.ok(Math.abs(start.zOffset - end.zOffset - 0.16) < 1e-6);
+  assert.ok(start.zOffset > 0.10);
+  assert.ok(end.zOffset < -0.10);
+  assert.ok(Math.abs(start.zOffset - end.zOffset - 2 * LANYARD_SPECS.crossoverZ) < 1e-6);
   assert.equal(mid.zOffset, 0);
   assert.equal(mid.twistRad, 0);
 

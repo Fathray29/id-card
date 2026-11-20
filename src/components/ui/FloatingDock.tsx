@@ -8,13 +8,18 @@ import {
   EyeOff,
   Film,
   FlipHorizontal2,
+  Laptop,
   RefreshCw,
   Share2,
   Shield,
+  Shirt,
   SlidersHorizontal,
+  Sparkles,
   Square,
+  User,
 } from 'lucide-react';
 import { useStudioStore, type CameraPresetId } from '../../store/useStudioStore';
+import type { PlacementSceneId } from '../../geometry/placementGeometry';
 import { detectSoftwareWebGL } from '../../utils/webglDetect';
 
 const CAMERA_BUTTONS: Array<{ id: CameraPresetId; keyHint: string; label: string }> = [
@@ -22,6 +27,18 @@ const CAMERA_BUTTONS: Array<{ id: CameraPresetId; keyHint: string; label: string
   { id: 'front', keyHint: '2', label: 'Front' },
   { id: 'back', keyHint: '3', label: 'Back' },
   { id: 'macro', keyHint: '4', label: 'Macro' },
+];
+
+const PLACEMENT_BUTTONS: Array<{
+  id: PlacementSceneId;
+  label: string;
+  ariaLabel: string;
+  Icon: typeof Sparkles;
+}> = [
+  { id: 'studio', label: 'Studio', ariaLabel: 'Studio Floating Placement', Icon: Sparkles },
+  { id: 'table', label: 'Table', ariaLabel: 'On Table Placement', Icon: Laptop },
+  { id: 'torso', label: 'Torso', ariaLabel: 'On Torso Placement', Icon: User },
+  { id: 'hanger', label: 'Hanger', ariaLabel: 'On Hanger Placement', Icon: Shirt },
 ];
 
 export function FloatingDock() {
@@ -40,6 +57,8 @@ export function FloatingDock() {
   const togglePreviewReel = useStudioStore((s) => s.togglePreviewReel);
   const cameraPreset = useStudioStore((s) => s.cameraPreset);
   const setCameraPreset = useStudioStore((s) => s.setCameraPreset);
+  const placementScene = useStudioStore((s) => s.placementScene);
+  const setPlacementScene = useStudioStore((s) => s.setPlacementScene);
   const openExportModal = useStudioStore((s) => s.openExportModal);
   const setMobileDrawerOpen = useStudioStore((s) => s.setMobileDrawerOpen);
   const setActiveTab = useStudioStore((s) => s.setActiveTab);
@@ -87,6 +106,34 @@ export function FloatingDock() {
 
       {/* Mobile Thumb-Zone Bottom Control Bar (< 1024px) */}
       <div className="lg:hidden pointer-events-none absolute inset-x-0 bottom-3 z-20 flex flex-col items-center gap-2 px-3">
+        {/* Compact Placement Simulation Row */}
+        <div
+          className={`pointer-events-auto flex items-center gap-1 p-1 rounded-xl shadow-lg ${glassSurface}`}
+          role="group"
+          aria-label="Mobile Placement Simulation"
+        >
+          {PLACEMENT_BUTTONS.map(({ id, label, ariaLabel, Icon }) => {
+            const active = placementScene === id;
+            return (
+              <button
+                key={id}
+                type="button"
+                onClick={() => setPlacementScene(id)}
+                aria-pressed={active}
+                aria-label={ariaLabel}
+                className={`min-h-[34px] inline-flex items-center gap-1 px-2.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
+                  active
+                    ? 'bg-indigo-500/30 text-indigo-100 border border-indigo-400/50'
+                    : 'text-zinc-300 hover:text-white active:bg-white/10 border border-transparent'
+                }`}
+              >
+                <Icon className="w-3 h-3 shrink-0" />
+                {label}
+              </button>
+            );
+          })}
+        </div>
+
         {/* Compact Camera Preset Row */}
         <div
           className={`pointer-events-auto flex items-center gap-1 p-1 rounded-xl shadow-lg ${glassSurface}`}
@@ -193,10 +240,42 @@ export function FloatingDock() {
         </button>
 
         {!collapsed && (
-          <nav
-            aria-label="Viewport and Render Controls"
-            className={`pointer-events-auto flex flex-nowrap items-center gap-1 p-1.5 rounded-2xl shadow-2xl max-w-[calc(100vw-384px)] overflow-x-auto ${glassSurface}`}
-          >
+          <div className="flex flex-col items-center gap-1.5 max-w-[calc(100vw-384px)]">
+            {/* Placement Simulation Strip (Studio / Table / Torso / Hanger) */}
+            <div
+              role="group"
+              aria-label="Placement Simulation"
+              className={`pointer-events-auto inline-flex items-center gap-1 p-1 rounded-xl shadow-xl ${glassSurface}`}
+            >
+              <span className="pl-2 pr-1 text-[10px] font-medium uppercase tracking-wider text-zinc-400 select-none">
+                Scene
+              </span>
+              {PLACEMENT_BUTTONS.map(({ id, label, ariaLabel, Icon }) => {
+                const active = placementScene === id;
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setPlacementScene(id)}
+                    aria-pressed={active}
+                    aria-label={ariaLabel}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium whitespace-nowrap shrink-0 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${
+                      active
+                        ? 'bg-indigo-500/25 text-indigo-100 border border-indigo-400/50'
+                        : 'text-zinc-300 hover:text-white hover:bg-white/10 border border-transparent'
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5 shrink-0" />
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+
+            <nav
+              aria-label="Viewport and Render Controls"
+              className={`pointer-events-auto flex flex-nowrap items-center gap-1 p-1.5 rounded-2xl shadow-2xl max-w-full overflow-x-auto ${glassSurface}`}
+            >
             <button
               type="button"
               onClick={togglePreviewReel}
@@ -327,7 +406,8 @@ export function FloatingDock() {
               <Film className="w-3.5 h-3.5" />
               Render MP4
             </button>
-          </nav>
+            </nav>
+          </div>
         )}
       </div>
     </>

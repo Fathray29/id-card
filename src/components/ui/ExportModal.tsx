@@ -1,11 +1,23 @@
 import { useEffect, useRef } from 'react';
-import { AlertCircle, Camera, CheckCircle2, Film, Loader2, X } from 'lucide-react';
+import {
+  AlertCircle,
+  Camera,
+  CheckCircle2,
+  Film,
+  Laptop,
+  Loader2,
+  Shirt,
+  Sparkles,
+  User,
+  X,
+} from 'lucide-react';
 import { useStudioStore, type ExportMode } from '../../store/useStudioStore';
 import { RENDER_FPS, render1080p24Animation, render12mpStill } from '../../utils/renderEngine';
 import {
   EXPORT_RESOLUTIONS,
   type AnimationPreset,
   type ExportAspectRatio,
+  type PlacementSceneId,
 } from '../../utils/physicsEngine';
 import {
   STILL_12MP_RESOLUTIONS,
@@ -56,6 +68,18 @@ const SHUTTER_OPTIONS: Array<{ deg: ShutterAngleDeg; label: string }> = [
   { deg: 270, label: '270° Trails' },
 ];
 
+const PLACEMENT_SCENE_OPTIONS: Array<{
+  id: PlacementSceneId;
+  label: string;
+  desc: string;
+  icon: typeof Sparkles;
+}> = [
+  { id: 'studio', label: 'Studio', desc: 'Clean floating rig', icon: Sparkles },
+  { id: 'table', label: 'Table', desc: 'Walnut desk flat-lay', icon: Laptop },
+  { id: 'torso', label: 'Torso', desc: 'Linen mannequin bust', icon: User },
+  { id: 'hanger', label: 'Hanger', desc: 'Walnut hanger rack', icon: Shirt },
+];
+
 export function ExportModal() {
   const open = useStudioStore((s) => s.exportModalOpen);
   const mode = useStudioStore((s) => s.exportModalMode);
@@ -77,6 +101,9 @@ export function ExportModal() {
   const setMotionBlurQuality = useStudioStore((s) => s.setMotionBlurQuality);
   const shutterAngleDeg = useStudioStore((s) => s.shutterAngleDeg);
   const setShutterAngleDeg = useStudioStore((s) => s.setShutterAngleDeg);
+
+  const placementScene = useStudioStore((s) => s.placementScene);
+  const setPlacementScene = useStudioStore((s) => s.setPlacementScene);
 
   const renderProgress = useStudioStore((s) => s.renderProgress);
   const setRenderProgress = useStudioStore((s) => s.setRenderProgress);
@@ -286,6 +313,43 @@ export function ExportModal() {
 
         {/* Scrollable Body */}
         <div className="px-5 sm:px-6 py-4 space-y-4 overflow-y-auto studio-scroll flex-1">
+          {/* Placement Scene Simulation Selector */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-medium text-zinc-300">Simulate Scene</span>
+              <span className="text-[10px] font-mono text-zinc-400">
+                {placementScene === 'studio'
+                  ? 'Floating studio rig'
+                  : mode === 'video'
+                    ? 'Scene-aware cinema spline'
+                    : 'Real-world environment'}
+              </span>
+            </div>
+            <div className="grid grid-cols-4 gap-1.5">
+              {PLACEMENT_SCENE_OPTIONS.map((opt) => {
+                const Icon = opt.icon;
+                const active = placementScene === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    disabled={renderProgress.isRendering}
+                    onClick={() => setPlacementScene(opt.id)}
+                    title={opt.desc}
+                    className={`min-h-[46px] py-2 px-1.5 rounded-lg border flex flex-col items-center justify-center gap-1 transition-colors disabled:opacity-50 ${
+                      active
+                        ? 'bg-indigo-600/22 border-indigo-400/55 text-indigo-100'
+                        : 'bg-[#0b0d10] border-white/10 text-zinc-400 hover:text-zinc-200 hover:border-white/20'
+                    }`}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                    <span className="text-[11px] font-semibold leading-none">{opt.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           {/* Aspect Ratio / Device Format Selector */}
           <div className="space-y-1.5">
             <span className="text-xs font-medium text-zinc-300">Aspect Ratio & Output Size</span>

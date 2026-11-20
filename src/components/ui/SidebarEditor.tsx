@@ -1,15 +1,18 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Image as ImageIcon,
+  Laptop,
   Layers,
   RotateCcw,
   RotateCw,
   Shield,
   ShieldCheck,
+  Shirt,
   Sliders,
   Sparkles,
   Trash2,
   Upload,
+  User,
 } from 'lucide-react';
 import {
   useStudioStore,
@@ -22,6 +25,7 @@ import {
   type SampleTemplateId,
   type SidebarTabId,
 } from '../../store/useStudioStore';
+import type { PlacementSceneId } from '../../geometry/placementGeometry';
 import { LAYER_DIMENSIONS, renderLayerToCanvas } from '../../utils/texturePipeline';
 import { CARD_SPECS } from '../../geometry/cardGeometry';
 import {
@@ -354,6 +358,8 @@ export function SidebarEditor() {
   const setHologramIntensity = useStudioStore((s) => s.setHologramIntensity);
   const studioBackdrop = useStudioStore((s) => s.studioBackdrop);
   const setStudioBackdrop = useStudioStore((s) => s.setStudioBackdrop);
+  const placementScene = useStudioStore((s) => s.placementScene);
+  const setPlacementScene = useStudioStore((s) => s.setPlacementScene);
   const setCameraPreset = useStudioStore((s) => s.setCameraPreset);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1163,6 +1169,74 @@ export function SidebarEditor() {
                     <span>{hw.label}</span>
                   </button>
                 ))}
+              </div>
+            </section>
+
+            {/* Placement Simulation */}
+            <section className="space-y-2.5 pt-3 border-t border-white/10">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xs font-semibold text-zinc-200">Placement Simulation</h2>
+                <span className="text-[11px] text-zinc-400">Real-world scenes</span>
+              </div>
+              <div className="grid grid-cols-2 gap-1.5">
+                {(
+                  [
+                    {
+                      id: 'studio',
+                      label: 'Floating Studio',
+                      desc: 'Clean isolated showcase',
+                      Icon: Sparkles,
+                    },
+                    {
+                      id: 'table',
+                      label: 'Studio Table',
+                      desc: 'Walnut desk & flat-lay',
+                      Icon: Laptop,
+                    },
+                    {
+                      id: 'torso',
+                      label: 'Tailor Torso',
+                      desc: 'Linen bust chest drape',
+                      Icon: User,
+                    },
+                    {
+                      id: 'hanger',
+                      label: 'Coat Hanger',
+                      desc: 'Walnut rack suspension',
+                      Icon: Shirt,
+                    },
+                  ] as Array<{
+                    id: PlacementSceneId;
+                    label: string;
+                    desc: string;
+                    Icon: typeof Sparkles;
+                  }>
+                ).map(({ id, label, desc, Icon }) => {
+                  const active = placementScene === id;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => setPlacementScene(id)}
+                      aria-pressed={active}
+                      className={`flex flex-col items-start gap-1 p-2.5 rounded-lg border text-left transition-colors ${
+                        active
+                          ? 'bg-indigo-600/20 border-indigo-400/50 text-zinc-100'
+                          : 'bg-[#0b0e14] border-white/10 text-zinc-300 hover:border-white/20'
+                      }`}
+                    >
+                      <span className="inline-flex items-center gap-1.5 text-xs font-medium">
+                        <Icon
+                          className={`w-3.5 h-3.5 shrink-0 ${
+                            active ? 'text-indigo-300' : 'text-zinc-400'
+                          }`}
+                        />
+                        {label}
+                      </span>
+                      <span className="text-[11px] text-zinc-400 leading-tight">{desc}</span>
+                    </button>
+                  );
+                })}
               </div>
             </section>
 

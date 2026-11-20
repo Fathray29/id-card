@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { Muxer as Mp4Muxer, ArrayBufferTarget as Mp4ArrayBufferTarget } from 'mp4-muxer';
 import { Muxer as WebmMuxer, ArrayBufferTarget as WebmArrayBufferTarget } from 'webm-muxer';
-import type { StudioRigBridge } from '../store/useStudioStore';
+import { useStudioStore, type StudioRigBridge } from '../store/useStudioStore';
 import {
   EXPORT_RESOLUTIONS,
   type AnimationPreset,
@@ -526,7 +526,9 @@ export async function render12mpStill(
 
     const mime = options.format === 'png' ? 'image/png' : 'image/jpeg';
     const quality = options.format === 'jpg' ? 0.98 : undefined;
-    const filename = `id-card-12mp-${fullW}x${fullH}.${options.format}`;
+    const activePlacement = useStudioStore.getState().placementScene;
+    const placementSlug = activePlacement === 'studio' ? '' : `-${activePlacement}`;
+    const filename = `id-card${placementSlug}-12mp-${fullW}x${fullH}.${options.format}`;
 
     const blob = await new Promise<Blob>((resolve, reject) => {
       outCanvas.toBlob(
@@ -823,13 +825,15 @@ export async function render1080p24Animation(
       finalBuffer = webmMuxer!.target.buffer;
     }
 
+    const activePlacement = useStudioStore.getState().placementScene;
+    const placementSlug = activePlacement === 'studio' ? 'showcase' : activePlacement;
     const suffix =
       ratioKey === '16:9'
         ? '1080p24'
         : ratioKey === '9:16'
           ? 'reel-1080x1920-24fps'
           : 'square-1080-24fps';
-    const filename = `id-card-showcase-${suffix}.${selected.extension}`;
+    const filename = `id-card-${placementSlug}-${suffix}.${selected.extension}`;
     const blob = new Blob([finalBuffer], { type: selected.mimeType });
     triggerDownload(blob, filename);
     return filename;

@@ -4,7 +4,11 @@ import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { CameraControls, ContactShadows, Environment, Lightformer } from '@react-three/drei';
 import type CameraControlsImpl from 'camera-controls';
 import { AssemblyRig } from './AssemblyRig';
-import { useStudioStore, type CameraPresetId } from '../../store/useStudioStore';
+import { useStudioStore } from '../../store/useStudioStore';
+import {
+  PLACEMENT_SPECS,
+  getPlacementCameraPose,
+} from '../../geometry/placementGeometry';
 import { detectSoftwareWebGL } from '../../utils/webglDetect';
 import {
   createInitialFpsMonitorState,
@@ -12,44 +16,23 @@ import {
   updateFpsMonitor,
 } from '../../utils/performanceMonitor';
 
-interface CameraPresetPose {
-  position: [number, number, number];
-  target: [number, number, number];
-}
-
-const CAMERA_PRESETS: Record<CameraPresetId, CameraPresetPose> = {
-  // Full Lanyard & Card View: frames y = [-5, 40] cm with generous margin above the floating dock
-  full: {
-    position: [12.5, 16.0, 82.0],
-    target: [0, 15.2, 0],
-  },
-  // Card Front Hero: frames 5.4 x 8.56 cm front face + clasp cleanly above the floating dock
-  front: {
-    position: [4.2, 0.9, 20.6],
-    target: [0, -0.2, 0],
-  },
-  // Card Back View: smoothly orbits 180 deg around Y to inspect back face above the dock
-  back: {
-    position: [-4.2, 0.9, -20.6],
-    target: [0, -0.2, 0],
-  },
-  // Clasp & Weave Macro: close-up on y ≈ 4.5-6.8 cm showing 2.0 cm strap weave, crimp & slot punch
-  macro: {
-    position: [2.8, 5.5, 8.2],
-    target: [0, 4.9, 0],
-  },
-};
-
 const BACKDROP_COLORS: Record<'obsidian' | 'slate' | 'studio-light', string> = {
   obsidian: '#0b0d10',
   slate: '#141821',
-  'studio-light': '#e6e8ee',
+  'studio-light': '#dde2ea',
+};
+
+const BACKDROP_EXPOSURES: Record<'obsidian' | 'slate' | 'studio-light', number> = {
+  obsidian: 1.04,
+  slate: 1.04,
+  'studio-light': 0.94,
 };
 
 function CameraRigController({ isSoftwareGl }: { isSoftwareGl: boolean }) {
   const controlsRef = useRef<CameraControlsImpl>(null);
   const cameraPreset = useStudioStore((s) => s.cameraPreset);
   const cameraRequestNonce = useStudioStore((s) => s.cameraRequestNonce);
+  const placementScene = useStudioStore((s) => s.placementScene);
   const cardCaseEnabled = useStudioStore((s) => s.cardCaseEnabled);
   const previewReel = useStudioStore((s) => s.previewReel);
   const isRendering = useStudioStore((s) => s.renderProgress.isRendering);
@@ -62,7 +45,10 @@ function CameraRigController({ isSoftwareGl }: { isSoftwareGl: boolean }) {
   useEffect(() => {
     const controls = controlsRef.current;
     if (!controls || previewReel || isRendering) return;
-    const pose = CAMERA_PRESETS[cameraPreset];
+    const pose = getPlacementCameraPose(placementScene, cameraPreset, {
+      isPortrait,
+      cardCaseEnabled,
+    });
     const shouldAnimate = initializedRef.current && !isSoftwareGl;
     initializedRef.current = true;
 
@@ -73,19 +59,12 @@ function CameraRigController({ isSoftwareGl }: { isSoftwareGl: boolean }) {
       persp.updateProjectionMatrix();
     }
 
-    // Pull back gracefully on narrow mobile portrait viewports and when the taller badge case is enabled
-    const portraitScale = isPortrait ? (cameraPreset === 'full' ? 1.18 : 1.28) : 1.0;
-    const isCaseCloseView = cardCaseEnabled && (cameraPreset === 'front' || cameraPreset === 'back');
-    const distScale = portraitScale * (isCaseCloseView ? 1.14 : 1.0);
-    const posYOffset = isCaseCloseView ? -0.35 : 0;
-    const targetYOffset = isCaseCloseView ? -0.75 : 0;
-
     controls.setLookAt(
-      pose.position[0] * distScale,
-      pose.position[1] + posYOffset,
-      pose.position[2] * distScale,
+      pose.position[0],
+      pose.position[1],
+      pose.position[2],
       pose.target[0],
-      pose.target[1] + targetYOffset,
+      pose.target[1],
       pose.target[2],
       shouldAnimate
     );
@@ -93,6 +72,7 @@ function CameraRigController({ isSoftwareGl }: { isSoftwareGl: boolean }) {
   }, [
     cameraPreset,
     cameraRequestNonce,
+    placementScene,
     cardCaseEnabled,
     previewReel,
     isRendering,
@@ -109,7 +89,7 @@ function CameraRigController({ isSoftwareGl }: { isSoftwareGl: boolean }) {
       enabled={!previewReel && !isRendering}
       smoothTime={isSoftwareGl ? 0.01 : 0.45}
       minDistance={5.0}
-      maxDistance={115.0}
+      maxDistance={145.0}
       minPolarAngle={0.18}
       maxPolarAngle={Math.PI - 0.18}
       dollySpeed={0.85}
@@ -136,6 +116,7 @@ function SoftwareGlPacer({ isSoftwareGl }: { isSoftwareGl: boolean }) {
   const cardCaseStyle = useStudioStore((s) => s.cardCaseStyle);
   const hologramEnabled = useStudioStore((s) => s.hologramEnabled);
   const studioBackdrop = useStudioStore((s) => s.studioBackdrop);
+  const placementScene = useStudioStore((s) => s.placementScene);
 
   // Trigger a clean draw on any visual state change
   useEffect(() => {
@@ -150,6 +131,7 @@ function SoftwareGlPacer({ isSoftwareGl }: { isSoftwareGl: boolean }) {
     cardCaseStyle,
     hologramEnabled,
     studioBackdrop,
+    placementScene,
     previewReel,
     invalidate,
   ]);
@@ -274,14 +256,18 @@ function MobilePerformanceMonitor({ isSoftwareGl }: { isSoftwareGl: boolean }) {
 
 function StudioBackdropController() {
   const studioBackdrop = useStudioStore((s) => s.studioBackdrop);
-  const { scene, invalidate } = useThree();
+  const { gl, scene, invalidate } = useThree();
 
   useEffect(() => {
     const color = new THREE.Color(BACKDROP_COLORS[studioBackdrop]);
     scene.background = color;
-    scene.fog = new THREE.FogExp2(color, 0.0055);
+    // Never apply bright white exponential fog on studio-light (that washes out shadows & dark colors!)
+    scene.fog =
+      studioBackdrop === 'studio-light' ? null : new THREE.FogExp2(color, 0.0022);
+    // Calibrate ACES exposure so Studio Light stays rich & high-contrast in viewport, 12MP stills & MP4 renders
+    gl.toneMappingExposure = BACKDROP_EXPOSURES[studioBackdrop];
     invalidate();
-  }, [studioBackdrop, scene, invalidate]);
+  }, [studioBackdrop, gl, scene, invalidate]);
 
   return null;
 }
@@ -289,6 +275,7 @@ function StudioBackdropController() {
 export function StudioScene() {
   const isSoftwareGl = useMemo(() => detectSoftwareWebGL(), []);
   const studioBackdrop = useStudioStore((s) => s.studioBackdrop);
+  const placementScene = useStudioStore((s) => s.placementScene);
   const cardCaseEnabled = useStudioStore((s) => s.cardCaseEnabled);
   const performanceTier = useStudioStore((s) => s.performanceTier);
   const isLightBackdrop = studioBackdrop === 'studio-light';
@@ -299,10 +286,22 @@ export function StudioScene() {
       ? 1
       : [1, performanceTier.maxDpr];
 
+  const contactShadowY =
+    placementScene === 'table'
+      ? PLACEMENT_SPECS.table.matTopY + 0.015
+      : placementScene === 'torso'
+        ? PLACEMENT_SPECS.torso.standFloorY + 0.02
+        : placementScene === 'hanger'
+          ? PLACEMENT_SPECS.hanger.rackFloorY + 0.02
+          : cardCaseEnabled
+            ? -6.5
+            : -5.5;
+
   return (
     <div
       className="relative w-full h-full select-none touch-none"
       data-testid="studio-viewport"
+      data-placement={placementScene}
       data-software-gl={isSoftwareGl ? 'true' : 'false'}
       data-mobile={performanceTier.isMobileDevice ? 'true' : 'false'}
       data-msaa={String(performanceTier.msaaSamples)}
@@ -319,7 +318,7 @@ export function StudioScene() {
           preserveDrawingBuffer: true,
           powerPreference: 'high-performance',
           toneMapping: THREE.ACESFilmicToneMapping,
-          toneMappingExposure: 1.08,
+          toneMappingExposure: isLightBackdrop ? 0.94 : 1.04,
         }}
         onCreated={({ gl }) => {
           gl.outputColorSpace = THREE.SRGBColorSpace;
@@ -334,89 +333,106 @@ export function StudioScene() {
         <SoftwareGlPacer isSoftwareGl={isSoftwareGl} />
         <CameraRigController isSoftwareGl={isSoftwareGl} />
 
-        {/* Balanced 3-Point Warm/Cool Studio Rig */}
+        {/* Commercial Photography 4:1 Key-to-Fill Rig with Negative Fill for Rich Shadow Contrast */}
         <hemisphereLight
-          args={[isLightBackdrop ? '#eef4ff' : '#cfdfff', isLightBackdrop ? '#c4c9d4' : '#181a24', 0.55]}
+          args={[
+            isLightBackdrop ? '#dce6f5' : '#c6d8f5',
+            isLightBackdrop ? '#2c3342' : '#12151f',
+            isLightBackdrop ? 0.22 : 0.34,
+          ]}
         />
 
-        {/* Warm Directional Key Light casting soft PCF shadows (auto-disabled below 45fps on mobile) */}
+        {/* Sculpted Warm Directional Key Light casting crisp soft shadows */}
         <directionalLight
-          position={[14, 24, 18]}
-          intensity={1.95}
-          color="#fff4e4"
+          position={placementScene === 'table' ? [20, 36, 22] : [20, 32, 24]}
+          intensity={isLightBackdrop ? 2.15 : 2.35}
+          color="#fff5e6"
           castShadow={shadowsEnabled}
           shadow-mapSize-width={performanceTier.isMobileDevice ? 512 : 2048}
           shadow-mapSize-height={performanceTier.isMobileDevice ? 512 : 2048}
           shadow-camera-near={1}
-          shadow-camera-far={75}
-          shadow-camera-left={-18}
-          shadow-camera-right={18}
-          shadow-camera-top={44}
-          shadow-camera-bottom={-10}
-          shadow-bias={-0.0003}
-          shadow-normalBias={0.015}
+          shadow-camera-far={130}
+          shadow-camera-left={-46}
+          shadow-camera-right={46}
+          shadow-camera-top={60}
+          shadow-camera-bottom={-46}
+          shadow-bias={-0.00025}
+          shadow-normalBias={0.025}
         />
 
-        {/* Cool Fill Light from opposite left flank */}
-        <directionalLight position={[-16, 12, 12]} intensity={0.72} color="#dbeafe" />
+        {/* Restrained Cool Fill Light from opposite left flank (preserves sculptural midtone modeling) */}
+        <directionalLight
+          position={[-18, 12, 14]}
+          intensity={isLightBackdrop ? 0.34 : 0.48}
+          color="#cfe0ff"
+        />
 
-        {/* Crisp Rim Backlight to separate dark edges and illuminate woven strap bevels */}
-        <directionalLight position={[0, 18, -22]} intensity={1.15} color="#e0e7ff" />
+        {/* Grazing Rim Backlight separating dark wood/linen/card silhouettes cleanly */}
+        <directionalLight
+          position={[-4, 18, -24]}
+          intensity={isLightBackdrop ? 0.85 : 1.15}
+          color="#dce8ff"
+        />
 
-        {/* Procedural Studio Softbox HDRI Environment (Zero external HDR 404s) */}
-        <Environment resolution={256} frames={1}>
+        {/* Procedural Studio Softbox & Negative-Fill Flag HDRI Environment (Zero external HDR 404s) */}
+        <Environment
+          key={isLightBackdrop ? 'env-light' : 'env-dark'}
+          resolution={256}
+          frames={1}
+          environmentIntensity={isLightBackdrop ? 0.72 : 0.92}
+        >
           {/* Overhead studio strip softbox */}
           <Lightformer
             form="rect"
-            intensity={2.8}
-            color="#ffffff"
+            intensity={2.6}
+            color="#fffcf7"
             scale={[18, 5, 1]}
             position={[0, 26, 4]}
             rotation={[Math.PI / 2, 0, 0]}
           />
-          {/* Front diffused bounce card so flat brushed metal surfaces gleam softly */}
+          {/* Controlled front bounce card for brushed steel gleam without washing out card artwork */}
           <Lightformer
             form="rect"
-            intensity={1.55}
-            color="#f1f5f9"
-            scale={[18, 14, 1]}
-            position={[3, 10, 24]}
+            intensity={isLightBackdrop ? 0.85 : 1.25}
+            color="#e8eef7"
+            scale={[14, 12, 1]}
+            position={[4, 12, 26]}
             target={[0, 6, 0]}
           />
-          {/* Left warm key softbox panel */}
+          {/* Warm sculpted key softbox panel */}
           <Lightformer
             form="rect"
-            intensity={2.2}
-            color="#fff2dc"
+            intensity={2.35}
+            color="#fff0d8"
             scale={[14, 22, 1]}
-            position={[-18, 12, 12]}
+            position={[20, 16, 14]}
             target={[0, 8, 0]}
           />
-          {/* Right cool rim strip for crisp PVC clearcoat & chrome reflections */}
+          {/* Cool chrome edge rim strip */}
           <Lightformer
             form="rect"
-            intensity={2.6}
-            color="#c7d8ff"
-            scale={[6, 26, 1]}
-            position={[18, 14, -6]}
+            intensity={2.4}
+            color="#bfd4ff"
+            scale={[5, 26, 1]}
+            position={[-20, 14, -8]}
             target={[0, 8, 0]}
           />
-          {/* Subtle back overhead accent */}
+          {/* Subtle back overhead halo */}
           <Lightformer
             form="ring"
-            intensity={1.3}
-            color="#e2e8f0"
+            intensity={1.15}
+            color="#dce6f5"
             scale={14}
-            position={[0, 10, -22]}
+            position={[0, 10, -24]}
             target={[0, 6, 0]}
           />
-          {/* Ground bounce fill */}
+          {/* Negative-fill dark studio floor bounce (keeps dark blacks rich even on Studio Light!) */}
           <Lightformer
             form="rect"
-            intensity={0.5}
-            color={isLightBackdrop ? '#ffffff' : '#334155'}
-            scale={[40, 40, 1]}
-            position={[0, -10, 0]}
+            intensity={0.28}
+            color="#1e2430"
+            scale={[44, 44, 1]}
+            position={[0, -12, 0]}
             rotation={[-Math.PI / 2, 0, 0]}
           />
         </Environment>
@@ -428,14 +444,15 @@ export function StudioScene() {
         {performanceTier.highFidelityShadows && (
           <group name="studio-contact-shadows">
             <ContactShadows
-              position={[0, cardCaseEnabled ? -6.5 : -5.5, 0]}
-              opacity={isLightBackdrop ? 0.35 : 0.45}
-              scale={25}
-              blur={2.2}
-              far={16}
+              key={placementScene}
+              position={[0, contactShadowY, placementScene === 'table' ? -2 : 0]}
+              opacity={isLightBackdrop ? 0.44 : 0.52}
+              scale={placementScene === 'studio' ? 25 : 64}
+              blur={placementScene === 'table' ? 1.6 : 2.1}
+              far={placementScene === 'table' ? 10 : 28}
               resolution={isSoftwareGl || performanceTier.isMobileDevice ? 256 : 512}
               frames={1}
-              color={isLightBackdrop ? '#1e293b' : '#000000'}
+              color={isLightBackdrop ? '#0f172a' : '#000000'}
             />
           </group>
         )}

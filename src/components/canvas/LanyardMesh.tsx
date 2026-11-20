@@ -89,9 +89,13 @@ export function LanyardMesh({ neckPivotY }: LanyardMeshProps) {
   const { gl, invalidate } = useThree();
   const lanyardLayer = useStudioStore((s) => s.layers.lanyard);
   const activeTemplate = useStudioStore((s) => s.activeTemplate);
+  const placementScene = useStudioStore((s) => s.placementScene);
   const highFidelityShadows = useStudioStore((s) => s.performanceTier.highFidelityShadows);
 
-  const { geometry: strapGeometry } = useMemo(() => createLanyardGeometry(), []);
+  const { geometry: strapGeometry } = useMemo(
+    () => createLanyardGeometry(placementScene),
+    [placementScene]
+  );
   const hardwareGeos = useMemo(() => createHardwareGeometries(), []);
   const { hardwareMaterial, accentHardwareMaterial } = useHardwareMaterials();
 
@@ -136,14 +140,20 @@ export function LanyardMesh({ neckPivotY }: LanyardMeshProps) {
   }, [strapTexture, fabricMaps]);
 
   useEffect(() => {
+    invalidate();
     return () => {
       strapGeometry.dispose();
+    };
+  }, [strapGeometry, invalidate]);
+
+  useEffect(() => {
+    return () => {
       disposeHardwareGeometries(hardwareGeos);
       fabricMaps.dispose();
       strapTexture.dispose();
       strapMaterial.dispose();
     };
-  }, [strapGeometry, hardwareGeos, fabricMaps, strapTexture, strapMaterial]);
+  }, [hardwareGeos, fabricMaps, strapTexture, strapMaterial]);
 
   const imgCache = useRef<{ url: string | null; img: HTMLImageElement | null }>({
     url: null,
