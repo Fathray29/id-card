@@ -236,7 +236,7 @@ function ArtboardPreview({ layerId }: { layerId: LayerId }) {
 
           {/* Interactive Draggable Artboard Canvas */}
           <div
-            className={`relative overflow-hidden border border-white/20 bg-zinc-950 ${
+            className={`relative overflow-hidden border border-white/20 bg-zinc-950 touch-none ${
               isCard ? 'rounded-[10px]' : 'rounded-[4px]'
             } ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
             style={{
@@ -315,6 +315,8 @@ function ArtboardPreview({ layerId }: { layerId: LayerId }) {
 export function SidebarEditor() {
   const activeTab = useStudioStore((s) => s.activeTab);
   const setActiveTab = useStudioStore((s) => s.setActiveTab);
+  const mobileDrawerOpen = useStudioStore((s) => s.mobileDrawerOpen);
+  const setMobileDrawerOpen = useStudioStore((s) => s.setMobileDrawerOpen);
   const activeTemplate = useStudioStore((s) => s.activeTemplate);
   const applyTemplate = useStudioStore((s) => s.applyTemplate);
   const layers = useStudioStore((s) => s.layers);
@@ -364,53 +366,77 @@ export function SidebarEditor() {
   };
 
   return (
-    <aside
-      className="w-[360px] shrink-0 h-full flex flex-col bg-zinc-900/95 border-r border-white/10 z-20"
-      aria-label="Design and Material Studio Controls"
-    >
-      {/* Clean Studio Header */}
-      <header className="px-5 py-4 border-b border-white/10 flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h1 className="text-[15px] font-semibold tracking-tight text-zinc-100 whitespace-nowrap">
-            BadgeForge 3D
-          </h1>
-          <p className="text-[11px] font-mono tabular-nums text-zinc-400 mt-0.5">
-            CR80 5.4×8.56 cm · Lanyard 80×2 cm
-          </p>
-        </div>
-      </header>
+    <>
+      {/* Mobile Backdrop Overlay */}
+      {mobileDrawerOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-black/60 lg:hidden"
+          onClick={() => setMobileDrawerOpen(false)}
+          aria-hidden="true"
+        />
+      )}
 
-      {/* 4-Tab Navigation Bar */}
-      <div
-        role="tablist"
-        aria-label="Customization layers"
-        className="grid grid-cols-4 gap-1 p-2 border-b border-white/10 bg-[#0d1016]"
+      <aside
+        className={`fixed inset-x-0 bottom-0 z-40 flex flex-col bg-zinc-900/98 border-t border-white/15 rounded-t-3xl max-h-[82dvh] transition-transform duration-200 ease-out lg:static lg:inset-auto lg:w-[360px] lg:shrink-0 lg:h-full lg:max-h-none lg:rounded-none lg:border-t-0 lg:border-r lg:border-white/10 lg:bg-zinc-900/95 lg:translate-y-0 lg:z-20 ${
+          mobileDrawerOpen ? 'translate-y-0' : 'translate-y-full lg:translate-y-0'
+        }`}
+        aria-label="Design and Material Studio Controls"
       >
-        {TABS.map((tab) => {
-          const isActive = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              role="tab"
-              aria-selected={isActive}
-              onClick={() => handleTabChange(tab.id)}
-              className={`flex flex-col items-center justify-center py-2 px-1 rounded-lg text-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${
-                isActive
-                  ? 'bg-indigo-600/20 text-indigo-200 border border-indigo-400/40'
-                  : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5 border border-transparent'
-              }`}
-            >
-              <span className="text-xs font-semibold leading-tight whitespace-nowrap">
-                {tab.label}
-              </span>
-              <span className="text-[10px] font-mono tabular-nums opacity-70 mt-0.5 whitespace-nowrap">
-                {tab.spec}
-              </span>
-            </button>
-          );
-        })}
-      </div>
+        {/* Mobile Grab Handle */}
+        <div className="lg:hidden flex justify-center pt-2.5 pb-1 shrink-0" aria-hidden="true">
+          <div className="w-10 h-1 rounded-full bg-white/20" />
+        </div>
+
+        {/* Clean Studio Header */}
+        <header className="px-5 py-3 lg:py-4 border-b border-white/10 flex items-center justify-between gap-3 shrink-0">
+          <div className="min-w-0">
+            <h1 className="text-[15px] font-semibold tracking-tight text-zinc-100 whitespace-nowrap">
+              BadgeForge 3D
+            </h1>
+            <p className="text-[11px] font-mono tabular-nums text-zinc-400 mt-0.5">
+              CR80 5.4×8.56 cm · Lanyard 80×2 cm
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setMobileDrawerOpen(false)}
+            className="lg:hidden min-h-[40px] px-3.5 rounded-xl bg-indigo-600 text-xs font-semibold text-white whitespace-nowrap shrink-0"
+          >
+            Done
+          </button>
+        </header>
+
+        {/* 4-Tab Navigation Bar */}
+        <div
+          role="tablist"
+          aria-label="Customization layers"
+          className="grid grid-cols-4 gap-1 p-2 border-b border-white/10 bg-[#0d1016] shrink-0"
+        >
+          {TABS.map((tab) => {
+            const isActive = activeTab === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={isActive}
+                onClick={() => handleTabChange(tab.id)}
+                className={`flex flex-col items-center justify-center min-h-[44px] py-2 px-1 rounded-lg text-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${
+                  isActive
+                    ? 'bg-indigo-600/20 text-indigo-200 border border-indigo-400/40'
+                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5 border border-transparent'
+                }`}
+              >
+                <span className="text-xs font-semibold leading-tight whitespace-nowrap">
+                  {tab.label}
+                </span>
+                <span className="text-[10px] font-mono tabular-nums opacity-70 mt-0.5 whitespace-nowrap">
+                  {tab.spec}
+                </span>
+              </button>
+            );
+          })}
+        </div>
 
       {/* Scrollable Editor Body */}
       <div className="flex-1 overflow-y-auto studio-scroll p-4 space-y-5">
@@ -899,5 +925,6 @@ export function SidebarEditor() {
         )}
       </div>
     </aside>
+    </>
   );
 }

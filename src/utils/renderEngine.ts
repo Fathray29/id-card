@@ -2,20 +2,27 @@ import * as THREE from 'three';
 import { Muxer as Mp4Muxer, ArrayBufferTarget as Mp4ArrayBufferTarget } from 'mp4-muxer';
 import { Muxer as WebmMuxer, ArrayBufferTarget as WebmArrayBufferTarget } from 'webm-muxer';
 import type { StudioRigBridge } from '../store/useStudioStore';
-import type { AnimationPreset } from './physicsEngine';
+import {
+  EXPORT_RESOLUTIONS,
+  type AnimationPreset,
+  type ExportAspectRatio,
+  type VideoDurationSec,
+} from './physicsEngine';
 
-export const RENDER_WIDTH = 1920;
-export const RENDER_HEIGHT = 1080;
 export const RENDER_FPS = 60;
 
 export interface StillRenderOptions {
   format: 'png' | 'jpg';
   transparentBg: boolean;
+  aspectRatio?: ExportAspectRatio;
+  msaaSamples?: number;
 }
 
 export interface VideoRenderOptions {
   preset: AnimationPreset;
-  durationSec: 4 | 6;
+  durationSec: VideoDurationSec;
+  aspectRatio?: ExportAspectRatio;
+  msaaSamples?: number;
   signal: AbortSignal;
   onProgress: (frame: number, totalFrames: number, stageLabel: string) => void;
 }
@@ -51,12 +58,21 @@ function flipPixelsToImageData(
 }
 
 /**
- * Allocates an offscreen 1920x1080 MSAA WebGLRenderTarget (4x MSAA on WebGL2 GPUs).
+ * Allocates an offscreen MSAA WebGLRenderTarget respecting mobile adaptive MSAA budgets
+ * (4x MSAA on desktop WebGL2, 2x or 0x on degraded mobile GPUs).
  */
-function createOfflineRenderTarget(gl: THREE.WebGLRenderer): THREE.WebGLRenderTarget {
+function createOfflineRenderTarget(
+  gl: THREE.WebGLRenderer,
+  width: number,
+  height: number,
+  requestedSamples = 4
+): THREE.WebGLRenderTarget {
   const isWebGL2 = gl.capabilities.isWebGL2;
-  const maxSamples = isWebGL2 ? Math.min(4, gl.capabilities.maxSamples || 4) : 0;
-  return new THREE.WebGLRenderTarget(RENDER_WIDTH, RENDER_HEIGHT, {
+  const clampedReq = Math.max(0, Math.min(4, Math.round(requestedSamples)));
+  const maxSamples = isWebGL2
+    ? Math.min(clampedReq, gl.capabilities.maxSamples || clampedReq)
+    : 0;
+  return new THREE.WebGLRenderTarget(width, height, {
     samples: maxSamples,
     type: THREE.UnsignedByteType,
     format: THREE.RGBAFormat,
@@ -69,8 +85,7 @@ function createOfflineRenderTarget(gl: THREE.WebGLRenderer): THREE.WebGLRenderTa
 }
 
 /**
- * Deterministic 1080p (1920x1080) MSAA offline still frame renderer.
- * Supports optional alpha-transparent PNG output without touching live viewport aspect.
+ * Deterministic 1080p (1920x1080 / 1080x1920 / 1080x1080) MSAA offline still frame renderer.
  */
 export async function render1080pStill(
   rigBridge: StudioRigBridge,
@@ -81,27 +96,23 @@ export async function render1080pStill(
     throw new Error('3D viewport is not initialized yet.');
   }
   const { gl, scene, camera, invalidate } = refs;
+  const ratioKey = options.aspectRatio ?? '16:9';
+  const { width, height } = EXPORT_RESOLUTIONS[ratioKey];
 
-  const rt = createOfflineRenderTarget(gl);
+  const rt = createOfflineRenderTarget(gl, width, height, options.msaaSamples ?? 4);
   const prevTarget = gl.getRenderTarget();
   const prevAspect = camera.aspect;
   const prevBackground = scene.background;
   const prevFog = scene.fog;
   const prevClearAlpha = gl.getClearAlpha();
 
-  // Hide contact shadows temporarily if exporting transparent PNG cutout
   const hiddenForAlpha: THREE.Object3D[] = [];
   if (options.transparentBg && options.format === 'png') {
     scene.background = null;
     scene.fog = null;
     gl.setClearAlpha(0);
     scene.traverse((obj) => {
-      // ContactShadows renders a ground plane at y = -5.5; keep only card + lanyard rig visible
-      if (
-        obj.type === 'Mesh' &&
-        Math.abs(obj.position.y + 5.5) < 0.05 &&
-        obj.visible
-      ) {
+      if (obj.type === 'Mesh' && Math.abs(obj.position.y + 5.5) < 0.05 && obj.visible) {
         obj.visible = false;
         hiddenForAlpha.push(obj);
       }
@@ -109,29 +120,30 @@ export async function render1080pStill(
   }
 
   try {
-    camera.aspect = RENDER_WIDTH / RENDER_HEIGHT;
+    camera.aspect = width / height;
     camera.updateProjectionMatrix();
 
     gl.setRenderTarget(rt);
     gl.clear(true, true, true);
     gl.render(scene, camera);
 
-    const pixelBuffer = new Uint8Array(RENDER_WIDTH * RENDER_HEIGHT * 4);
-    gl.readRenderTargetPixels(rt, 0, 0, RENDER_WIDTH, RENDER_HEIGHT, pixelBuffer);
+    const pixelBuffer = new Uint8Array(width * height * 4);
+    gl.readRenderTargetPixels(rt, 0, 0, width, height, pixelBuffer);
 
     const outCanvas = document.createElement('canvas');
-    outCanvas.width = RENDER_WIDTH;
-    outCanvas.height = RENDER_HEIGHT;
+    outCanvas.width = width;
+    outCanvas.height = height;
     const ctx = outCanvas.getContext('2d');
     if (!ctx) throw new Error('Could not create 2D export canvas context.');
 
-    const imgData = ctx.createImageData(RENDER_WIDTH, RENDER_HEIGHT);
-    flipPixelsToImageData(pixelBuffer, imgData, RENDER_WIDTH, RENDER_HEIGHT);
+    const imgData = ctx.createImageData(width, height);
+    flipPixelsToImageData(pixelBuffer, imgData, width, height);
     ctx.putImageData(imgData, 0, 0);
 
     const mime = options.format === 'png' ? 'image/png' : 'image/jpeg';
     const quality = options.format === 'jpg' ? 0.95 : undefined;
-    const filename = `id-card-render-1080p.${options.format}`;
+    const suffix = ratioKey === '16:9' ? '1080p' : ratioKey === '9:16' ? '1080x1920' : '1080x1080';
+    const filename = `id-card-render-${suffix}.${options.format}`;
 
     const blob = await new Promise<Blob>((resolve, reject) => {
       outCanvas.toBlob(
@@ -166,7 +178,7 @@ interface SelectedCodec {
   extension: 'mp4' | 'webm';
 }
 
-async function selectSupportedVideoCodec(): Promise<SelectedCodec> {
+async function selectSupportedVideoCodec(width: number, height: number): Promise<SelectedCodec> {
   if (typeof VideoEncoder === 'undefined' || typeof VideoFrame === 'undefined') {
     throw new Error(
       'WebCodecs API (VideoEncoder) is not available in this browser. Try Chrome, Edge, or Safari 16.4+.'
@@ -176,7 +188,14 @@ async function selectSupportedVideoCodec(): Promise<SelectedCodec> {
   const candidates: SelectedCodec[] = [
     {
       container: 'mp4',
-      codec: 'avc1.640028', // H.264 High Profile Level 4.0 (1080p60)
+      codec: 'avc1.64002a', // H.264 High Profile Level 4.2 (supports 1920x1080 & 1080x1920 @ 60fps)
+      muxerCodec: 'avc',
+      mimeType: 'video/mp4',
+      extension: 'mp4',
+    },
+    {
+      container: 'mp4',
+      codec: 'avc1.640028', // H.264 High Profile Level 4.0
       muxerCodec: 'avc',
       mimeType: 'video/mp4',
       extension: 'mp4',
@@ -190,7 +209,7 @@ async function selectSupportedVideoCodec(): Promise<SelectedCodec> {
     },
     {
       container: 'mp4',
-      codec: 'avc1.420028', // H.264 Baseline Level 4.0
+      codec: 'avc1.42002a', // H.264 Baseline Level 4.2
       muxerCodec: 'avc',
       mimeType: 'video/mp4',
       extension: 'mp4',
@@ -215,8 +234,8 @@ async function selectSupportedVideoCodec(): Promise<SelectedCodec> {
     try {
       const support = await VideoEncoder.isConfigSupported({
         codec: cand.codec,
-        width: RENDER_WIDTH,
-        height: RENDER_HEIGHT,
+        width,
+        height,
         bitrate: 12_000_000,
         framerate: RENDER_FPS,
       });
@@ -233,9 +252,9 @@ async function selectSupportedVideoCodec(): Promise<SelectedCodec> {
 
 /**
  * Deterministic, frame-by-frame offline 1080p 60fps video renderer.
- * Steps physics & animation curves by exact dt = 1/60s, renders synchronously into
- * a 1920x1080 MSAA WebGLRenderTarget, encodes each frame via WebCodecs VideoEncoder,
- * muxes with mp4-muxer (or automatic webm-muxer VP9 fallback), and drops zero frames.
+ * Steps physics & choreographed cinematic camera keyframes by exact dt = 1/60s,
+ * renders synchronously into an MSAA WebGLRenderTarget, encodes each frame via WebCodecs,
+ * muxes cleanly with mp4-muxer (or automatic webm-muxer fallback), and restores camera state.
  */
 export async function render1080p60Animation(
   rigBridge: StudioRigBridge,
@@ -246,23 +265,25 @@ export async function render1080p60Animation(
     throw new Error('3D viewport is not initialized yet.');
   }
   const { gl, scene, camera, invalidate } = refs;
+  const ratioKey = options.aspectRatio ?? '16:9';
+  const { width, height } = EXPORT_RESOLUTIONS[ratioKey];
+  const aspect = width / height;
   const totalFrames = options.durationSec * RENDER_FPS;
 
-  options.onProgress(0, totalFrames, 'Initializing 1080p 60fps WebCodecs encoder...');
-  const selected = await selectSupportedVideoCodec();
+  options.onProgress(0, totalFrames, `Initializing ${width}×${height} 60fps WebCodecs encoder...`);
+  const selected = await selectSupportedVideoCodec(width, height);
 
-  const rt = createOfflineRenderTarget(gl);
+  const rt = createOfflineRenderTarget(gl, width, height, options.msaaSamples ?? 4);
   const prevTarget = gl.getRenderTarget();
   const prevAspect = camera.aspect;
+  const prevFov = camera.fov;
+  const prevPos = camera.position.clone();
+  const prevQuat = camera.quaternion.clone();
 
-  // Staging canvas for vertically flipped RGBA readback -> VideoFrame
   const useOffscreen = typeof OffscreenCanvas !== 'undefined';
   const stagingCanvas: OffscreenCanvas | HTMLCanvasElement = useOffscreen
-    ? new OffscreenCanvas(RENDER_WIDTH, RENDER_HEIGHT)
-    : Object.assign(document.createElement('canvas'), {
-        width: RENDER_WIDTH,
-        height: RENDER_HEIGHT,
-      });
+    ? new OffscreenCanvas(width, height)
+    : Object.assign(document.createElement('canvas'), { width, height });
 
   const stagingCtx = stagingCanvas.getContext('2d') as
     | OffscreenCanvasRenderingContext2D
@@ -270,11 +291,11 @@ export async function render1080p60Animation(
     | null;
   if (!stagingCtx) {
     rt.dispose();
-    throw new Error('Unable to initialize 1920x1080 staging canvas.');
+    throw new Error('Unable to initialize offline staging canvas.');
   }
 
-  const pixelBuffer = new Uint8Array(RENDER_WIDTH * RENDER_HEIGHT * 4);
-  const frameImageData = stagingCtx.createImageData(RENDER_WIDTH, RENDER_HEIGHT);
+  const pixelBuffer = new Uint8Array(width * height * 4);
+  const frameImageData = stagingCtx.createImageData(width, height);
 
   let encoderError: Error | null = null;
   let mp4Muxer: Mp4Muxer<Mp4ArrayBufferTarget> | null = null;
@@ -285,8 +306,8 @@ export async function render1080p60Animation(
       target: new Mp4ArrayBufferTarget(),
       video: {
         codec: 'avc',
-        width: RENDER_WIDTH,
-        height: RENDER_HEIGHT,
+        width,
+        height,
       },
       fastStart: 'in-memory',
       firstTimestampBehavior: 'offset',
@@ -296,8 +317,8 @@ export async function render1080p60Animation(
       target: new WebmArrayBufferTarget(),
       video: {
         codec: selected.muxerCodec === 'V_VP9' ? 'V_VP9' : 'V_VP8',
-        width: RENDER_WIDTH,
-        height: RENDER_HEIGHT,
+        width,
+        height,
         frameRate: RENDER_FPS,
       },
     });
@@ -318,8 +339,8 @@ export async function render1080p60Animation(
 
   encoder.configure({
     codec: selected.codec,
-    width: RENDER_WIDTH,
-    height: RENDER_HEIGHT,
+    width,
+    height,
     bitrate: 12_000_000,
     framerate: RENDER_FPS,
     hardwareAcceleration: 'prefer-hardware',
@@ -328,7 +349,7 @@ export async function render1080p60Animation(
   const frameDurationUs = Math.round(1_000_000 / RENDER_FPS);
 
   try {
-    camera.aspect = RENDER_WIDTH / RENDER_HEIGHT;
+    camera.aspect = aspect;
     camera.updateProjectionMatrix();
 
     for (let frame = 0; frame < totalFrames; frame++) {
@@ -339,21 +360,20 @@ export async function render1080p60Animation(
         throw encoderError;
       }
 
-      // Deterministic simulation step at exact timestamp t = frame / 60
-      rigBridge.stepOfflinePreset(options.preset, frame, totalFrames, RENDER_FPS);
+      // Deterministic physics + cinematic camera step at exact timestamp t = frame / 60
+      rigBridge.stepOfflinePreset(options.preset, frame, totalFrames, RENDER_FPS, aspect);
       scene.updateMatrixWorld(true);
 
-      // Synchronous render into 1920x1080 MSAA target
+      // Synchronous render into MSAA WebGLRenderTarget
       gl.setRenderTarget(rt);
       gl.clear(true, true, true);
       gl.render(scene, camera);
 
       // Readback + Y-flip onto staging canvas
-      gl.readRenderTargetPixels(rt, 0, 0, RENDER_WIDTH, RENDER_HEIGHT, pixelBuffer);
-      flipPixelsToImageData(pixelBuffer, frameImageData, RENDER_WIDTH, RENDER_HEIGHT);
+      gl.readRenderTargetPixels(rt, 0, 0, width, height, pixelBuffer);
+      flipPixelsToImageData(pixelBuffer, frameImageData, width, height);
       stagingCtx.putImageData(frameImageData, 0, 0);
 
-      // Backpressure guard so encoder queue never bloats RAM
       while (encoder.encodeQueueSize > 8) {
         await new Promise((r) => setTimeout(r, 4));
         if (options.signal.aborted) {
@@ -368,9 +388,8 @@ export async function render1080p60Animation(
       });
 
       encoder.encode(videoFrame, { keyFrame: frame % RENDER_FPS === 0 });
-      videoFrame.close(); // Immediately free GPU/RAM backing
+      videoFrame.close();
 
-      // Yield to main thread every 4 frames for responsive progress UI & cancel button
       if (frame % 4 === 0 || frame === totalFrames - 1) {
         const displayFrame = frame + 1;
         const pct = Math.round((displayFrame / totalFrames) * 100);
@@ -399,7 +418,8 @@ export async function render1080p60Animation(
       finalBuffer = webmMuxer!.target.buffer;
     }
 
-    const filename = `id-card-showcase-1080p60.${selected.extension}`;
+    const suffix = ratioKey === '16:9' ? '1080p60' : ratioKey === '9:16' ? 'reel-1080x1920-60fps' : 'square-1080-60fps';
+    const filename = `id-card-showcase-${suffix}.${selected.extension}`;
     const blob = new Blob([finalBuffer], { type: selected.mimeType });
     triggerDownload(blob, filename);
     return filename;
@@ -411,6 +431,9 @@ export async function render1080p60Animation(
         // Ignore close errors on aborted encoder
       }
     }
+    camera.position.copy(prevPos);
+    camera.quaternion.copy(prevQuat);
+    camera.fov = prevFov;
     camera.aspect = prevAspect;
     camera.updateProjectionMatrix();
     gl.setRenderTarget(prevTarget);

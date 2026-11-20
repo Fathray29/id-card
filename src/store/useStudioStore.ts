@@ -1,6 +1,15 @@
 import { create } from 'zustand';
 import type * as THREE from 'three';
-import type { AnimationPreset } from '../utils/physicsEngine';
+import type {
+  AnimationPreset,
+  ExportAspectRatio,
+  VideoDurationSec,
+} from '../utils/physicsEngine';
+import {
+  createInitialPerformanceTier,
+  detectMobileDevice,
+  type PerformanceTier,
+} from '../utils/performanceMonitor';
 
 export type LayerId = 'front' | 'back' | 'lanyard';
 export type FitMode = 'cover' | 'contain' | 'stretch';
@@ -45,7 +54,8 @@ export interface StudioRigBridge {
     preset: AnimationPreset,
     frameIndex: number,
     totalFrames: number,
-    fps?: number
+    fps?: number,
+    aspect?: number
   ) => void;
   resetSimulation: () => void;
   triggerFlipImpulse: (targetY: number) => void;
@@ -58,9 +68,15 @@ export interface StudioRigBridge {
 }
 
 interface StudioState {
-  // Active UI tab
+  // Adaptive mobile performance tier (managed silently by StudioScene PerformanceMonitor)
+  performanceTier: PerformanceTier;
+  setPerformanceTier: (tier: PerformanceTier) => void;
+
+  // Active UI tab & mobile bottom sheet state
   activeTab: SidebarTabId;
   setActiveTab: (tab: SidebarTabId) => void;
+  mobileDrawerOpen: boolean;
+  setMobileDrawerOpen: (open: boolean) => void;
 
   // Built-in procedural template
   activeTemplate: SampleTemplateId;
@@ -94,6 +110,9 @@ interface StudioState {
   setFlipped: (flipped: boolean) => void;
   autoSpin: boolean;
   toggleAutoSpin: () => void;
+  previewReel: boolean;
+  togglePreviewReel: () => void;
+  setPreviewReel: (active: boolean) => void;
   cameraPreset: CameraPresetId;
   cameraRequestNonce: number;
   setCameraPreset: (preset: CameraPresetId) => void;
@@ -103,14 +122,16 @@ interface StudioState {
   exportModalMode: ExportMode;
   openExportModal: (mode: ExportMode) => void;
   closeExportModal: () => void;
+  exportAspect: ExportAspectRatio;
+  setExportAspect: (aspect: ExportAspectRatio) => void;
   stillFormat: 'png' | 'jpg';
   setStillFormat: (fmt: 'png' | 'jpg') => void;
   stillTransparentBg: boolean;
   setStillTransparentBg: (transparent: boolean) => void;
   videoPreset: AnimationPreset;
   setVideoPreset: (preset: AnimationPreset) => void;
-  videoDurationSec: 4 | 6;
-  setVideoDurationSec: (sec: 4 | 6) => void;
+  videoDurationSec: VideoDurationSec;
+  setVideoDurationSec: (sec: VideoDurationSec) => void;
 
   renderProgress: RenderProgressState;
   setRenderProgress: (patch: Partial<RenderProgressState>) => void;
@@ -148,7 +169,7 @@ const TEMPLATE_DEFAULTS: Record<
   'tech-vip': {
     frontBg: '#0c1122',
     backBg: '#0c1122',
-    lanyardBg: '#161b33',
+    lanyardBg: '#1d2b8a',
     edge: 'black',
     finish: 'glossy',
     hardware: 'brushed-steel',
@@ -157,7 +178,7 @@ const TEMPLATE_DEFAULTS: Record<
   'corporate-sec': {
     frontBg: '#f8fafc',
     backBg: '#f1f5f9',
-    lanyardBg: '#0f2942',
+    lanyardBg: '#0369a1',
     edge: 'white',
     finish: 'glossy',
     hardware: 'brushed-steel',
@@ -166,7 +187,7 @@ const TEMPLATE_DEFAULTS: Record<
   'minimal-staff': {
     frontBg: '#141416',
     backBg: '#141416',
-    lanyardBg: '#18181b',
+    lanyardBg: '#111115',
     edge: 'gold',
     finish: 'matte',
     hardware: 'champagne-gold',
@@ -175,8 +196,13 @@ const TEMPLATE_DEFAULTS: Record<
 };
 
 export const useStudioStore = create<StudioState>((set, get) => ({
+  performanceTier: createInitialPerformanceTier(detectMobileDevice()),
+  setPerformanceTier: (performanceTier) => set({ performanceTier }),
+
   activeTab: 'front',
   setActiveTab: (tab) => set({ activeTab: tab }),
+  mobileDrawerOpen: false,
+  setMobileDrawerOpen: (mobileDrawerOpen) => set({ mobileDrawerOpen }),
 
   activeTemplate: 'tech-vip',
   applyTemplate: (template) => {
@@ -230,7 +256,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   layers: {
     front: createDefaultLayer('#0c1122', 1),
     back: createDefaultLayer('#0c1122', 1),
-    lanyard: createDefaultLayer('#161b33', 1),
+    lanyard: createDefaultLayer('#1d2b8a', 1),
   },
 
   updateLayer: (layerId, patch) =>
@@ -312,13 +338,33 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   },
 
   autoSpin: false,
-  toggleAutoSpin: () => set((state) => ({ autoSpin: !state.autoSpin })),
+  toggleAutoSpin: () =>
+    set((state) => ({
+      autoSpin: !state.autoSpin,
+      previewReel: !state.autoSpin ? false : state.previewReel,
+    })),
+
+  previewReel: false,
+  togglePreviewReel: () =>
+    set((state) => {
+      const next = !state.previewReel;
+      return {
+        previewReel: next,
+        autoSpin: next ? false : state.autoSpin,
+      };
+    }),
+  setPreviewReel: (previewReel) =>
+    set((state) => ({
+      previewReel,
+      autoSpin: previewReel ? false : state.autoSpin,
+    })),
 
   cameraPreset: 'front',
   cameraRequestNonce: 0,
   setCameraPreset: (cameraPreset) =>
     set((state) => ({
       cameraPreset,
+      previewReel: false,
       cameraRequestNonce: state.cameraRequestNonce + 1,
     })),
 
@@ -328,6 +374,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
     set((state) => ({
       exportModalOpen: true,
       exportModalMode: mode,
+      mobileDrawerOpen: false,
       renderProgress: {
         ...state.renderProgress,
         mode,
@@ -343,21 +390,31 @@ export const useStudioStore = create<StudioState>((set, get) => ({
       return { exportModalOpen: false };
     }),
 
+  exportAspect: '16:9',
+  setExportAspect: (exportAspect) => set({ exportAspect }),
+
   stillFormat: 'png',
   setStillFormat: (stillFormat) => set({ stillFormat }),
   stillTransparentBg: false,
   setStillTransparentBg: (stillTransparentBg) => set({ stillTransparentBg }),
 
-  videoPreset: 'turntable',
-  setVideoPreset: (videoPreset) => set({ videoPreset }),
-  videoDurationSec: 4,
+  videoPreset: 'cinematic-reel',
+  setVideoPreset: (videoPreset) =>
+    set((state) => ({
+      videoPreset,
+      videoDurationSec:
+        videoPreset === 'cinematic-360' && state.videoDurationSec < 14
+          ? 14
+          : state.videoDurationSec,
+    })),
+  videoDurationSec: 10,
   setVideoDurationSec: (videoDurationSec) => set({ videoDurationSec }),
 
   renderProgress: {
     isRendering: false,
     mode: 'still',
     currentFrame: 0,
-    totalFrames: 240,
+    totalFrames: 600,
     percent: 0,
     stageLabel: 'Ready to render',
     error: null,

@@ -110,7 +110,7 @@ test('Lanyard CatmullRomCurve3 normalizes to exact 80.00 cm (+/- 0.01 cm) with a
   geometry.dispose();
 });
 
-test('Hardware geometries build all 7 metallic parts cleanly', () => {
+test('Hardware geometries build all 7 metallic parts with snugly seated clasp hook & barrel mating', () => {
   const hw = createHardwareGeometries();
   assert.ok(hw.crimpClamp.attributes.position.count > 0);
   assert.ok(hw.crimpCollar.attributes.position.count > 0);
@@ -120,10 +120,23 @@ test('Hardware geometries build all 7 metallic parts cleanly', () => {
   assert.ok(hw.claspThumbTrigger.attributes.position.count > 0);
   assert.ok(hw.claspHookLoop.attributes.position.count > 0);
 
-  // Verify hook loop passes through slot punch elevation (y ~ 3.78 cm)
+  // Verify hook loop passes cleanly through the slot punch (y in [3.63, 3.93] cm)
   hw.claspHookLoop.computeBoundingBox();
-  const hookMinY = hw.claspHookLoop.boundingBox!.min.y;
-  assert.ok(hookMinY >= 3.63 && hookMinY <= 3.85, `Hook min Y ${hookMinY} should fit slot punch`);
+  const hookBb = hw.claspHookLoop.boundingBox!;
+  assert.ok(
+    hookBb.min.y >= 3.74 && hookBb.min.y <= 3.83,
+    `Hook min Y ${hookBb.min.y} should sit snugly inside slot punch without floating gap`
+  );
+  // Hook wraps snugly around PVC thickness (+/-0.046 cm) without protruding excessively
+  assert.ok(hookBb.max.z > 0.14 && hookBb.max.z < 0.25, `Hook max Z ${hookBb.max.z} should be snug`);
+
+  // Verify clasp body mates directly into swivel barrel bottom (y = 5.02 cm) with zero floating air gap
+  hw.swivelBarrel.computeBoundingBox();
+  hw.claspBody.computeBoundingBox();
+  assert.ok(
+    hw.claspBody.boundingBox!.max.y >= hw.swivelBarrel.boundingBox!.min.y,
+    'Clasp body must seat solidly into swivel barrel bottom'
+  );
 
   disposeHardwareGeometries(hw);
 });

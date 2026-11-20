@@ -12,17 +12,19 @@ import {
 } from '../../utils/physicsEngine';
 import { useStudioStore } from '../../store/useStudioStore';
 import { IdCardMesh } from './IdCardMesh';
-import { LanyardMesh } from './LanyardMesh';
+import { LanyardMesh, SwivelClaspMesh } from './LanyardMesh';
 
 /**
  * Hierarchical 3D Assembly Rig (1 unit = 1 cm):
  *  - turntableGroup: rotates the whole badge+lanyard assembly around Y
  *  - neckPivotGroup (positioned at top of lanyard loop, y ≈ 39.5 cm):
  *      applies subtle low-amplitude breathing sway (+/- 0.015 rad at 0.4 Hz)
- *      -> LanyardMesh (strap + crimp + swivel + lobster hook)
- *      -> claspHingeGroup (exact slot punch center at y = +3.78 cm):
- *          critically damped spring harmonic oscillator for realistic card pendulum & 180° flips
- *          -> IdCardMesh
+ *      -> LanyardMesh (80x2cm strap + crimp + D-ring + swivel barrel)
+ *      -> swivelClaspGroup (exact swivel axis at slot punch elevation y = +3.78 cm):
+ *          rotates smoothly around Y with `thetaY` so the lobster clasp swivels WITH the card
+ *          -> SwivelClaspMesh (clasp body + flush thumb gate + snug hook loop seated in slot)
+ *          -> cardPendulumGroup (applies realistic X/Z pendulum sway around hook saddle)
+ *              -> IdCardMesh
  */
 export function AssemblyRig() {
   const { gl, scene, camera, invalidate } = useThree();
@@ -36,52 +38,90 @@ export function AssemblyRig() {
 
   const turntableRef = useRef<THREE.Group>(null);
   const neckPivotRef = useRef<THREE.Group>(null);
-  const claspHingeRef = useRef<THREE.Group>(null);
+  const swivelClaspRef = useRef<THREE.Group>(null);
+  const cardPendulumRef = useRef<THREE.Group>(null);
 
   const springRef = useRef<SpringState>(createInitialSpringState());
 
-  // Apply pure SpringState cleanly onto the 3 hierarchical Three.js Groups (zero allocations)
-  const applyPoseToGroups = useCallback((pose: SpringState) => {
-    if (turntableRef.current) {
-      turntableRef.current.rotation.y = pose.turntableY;
-    }
-    if (neckPivotRef.current) {
-      neckPivotRef.current.rotation.z = pose.neckSwayZ;
-      neckPivotRef.current.rotation.x = pose.neckSwayX;
-    }
-    if (claspHingeRef.current) {
-      claspHingeRef.current.rotation.y = pose.thetaY;
-      claspHingeRef.current.rotation.x = pose.thetaX;
-      claspHingeRef.current.rotation.z = pose.thetaZ;
-    }
-  }, []);
+  // Apply pure SpringState cleanly onto the hierarchical Three.js Groups + Hermite-spline camera pose
+  const applyPoseToGroups = useCallback(
+    (pose: SpringState) => {
+      if (turntableRef.current) {
+        turntableRef.current.rotation.y = pose.turntableY;
+      }
+      if (neckPivotRef.current) {
+        neckPivotRef.current.rotation.z = pose.neckSwayZ;
+        neckPivotRef.current.rotation.x = pose.neckSwayX;
+      }
+      if (swivelClaspRef.current) {
+        // Swivel joint rotates both the lobster clasp AND the ID card together around Y (zero clipping!)
+        swivelClaspRef.current.rotation.y = pose.thetaY;
+      }
+      if (cardPendulumRef.current) {
+        cardPendulumRef.current.rotation.x = pose.thetaX;
+        cardPendulumRef.current.rotation.z = pose.thetaZ;
+      }
+      if (pose.cameraPose) {
+        const persp = camera as THREE.PerspectiveCamera;
+        persp.position.set(
+          pose.cameraPose.position.x,
+          pose.cameraPose.position.y,
+          pose.cameraPose.position.z
+        );
+        persp.lookAt(
+          pose.cameraPose.target.x,
+          pose.cameraPose.target.y,
+          pose.cameraPose.target.z
+        );
+        if (Math.abs(persp.fov - pose.cameraPose.fov) > 0.01) {
+          persp.fov = pose.cameraPose.fov;
+          persp.updateProjectionMatrix();
+        }
+      }
+    },
+    [camera]
+  );
 
   // Explicit deterministic step function exposed for both live preview and offline rendering
   const stepSimulation = useCallback(
     (dt: number, deterministicTime?: number) => {
       const store = useStudioStore.getState();
       const targetFlipY = store.isFlipped ? Math.PI : 0;
+      const persp = camera as THREE.PerspectiveCamera;
+      const activePreviewPreset =
+        store.videoPreset === 'cinematic-360' ? 'cinematic-360' : 'cinematic-reel';
       const next = stepLiveSimulation(springRef.current, {
         dt,
         targetFlipY,
         autoSpin: store.autoSpin,
+        previewReel: store.previewReel,
+        previewPreset: activePreviewPreset,
+        reelDurationSec: store.videoDurationSec,
+        aspect: persp.aspect || 16 / 9,
         deterministicTime,
       });
       springRef.current = next;
       applyPoseToGroups(next);
     },
-    [applyPoseToGroups]
+    [applyPoseToGroups, camera]
   );
 
-  // Explicit deterministic offline video preset stepper
+  // Explicit deterministic offline video preset stepper (Hermite-spline camera + spring rig)
   const stepOfflinePreset = useCallback(
-    (preset: AnimationPreset, frameIndex: number, totalFrames: number, fps = 60) => {
+    (
+      preset: AnimationPreset,
+      frameIndex: number,
+      totalFrames: number,
+      fps = 60,
+      aspect = 16 / 9
+    ) => {
       const next = stepOfflinePresetFrame(
         springRef.current,
         preset,
         frameIndex,
         totalFrames,
-        fps
+        fps,
+        aspect
       );
       springRef.current = next;
       applyPoseToGroups(next);
@@ -100,7 +140,6 @@ export function AssemblyRig() {
 
   const triggerFlipImpulse = useCallback(
     (targetY: number) => {
-      // Impart crisp angular momentum impulse so the card swings naturally around the clasp hinge
       const dir = targetY > springRef.current.thetaY ? 1 : -1;
       springRef.current.omegaY += dir * 2.4;
       springRef.current.omegaZ -= dir * 0.45;
@@ -152,9 +191,12 @@ export function AssemblyRig() {
       <group ref={neckPivotRef} position={[0, neckPivotY, 0]} name="neck-pivot">
         {showLanyard && <LanyardMesh neckPivotY={neckPivotY} />}
 
-        {/* Clasp Hinge Pivot at exact center of CR80 slot punch (world y = +3.78 cm) */}
-        <group ref={claspHingeRef} position={[0, hingeLocalY, 0]} name="clasp-hinge-pivot">
-          <IdCardMesh />
+        {/* Swivel Clasp & Card Pivot at exact slot punch elevation (world y = +3.78 cm) */}
+        <group ref={swivelClaspRef} position={[0, hingeLocalY, 0]} name="swivel-clasp-pivot">
+          {showLanyard && <SwivelClaspMesh pivotOffsetY={CARD_SPECS.slotCenterY} />}
+          <group ref={cardPendulumRef} name="card-pendulum-pivot">
+            <IdCardMesh />
+          </group>
         </group>
       </group>
     </group>

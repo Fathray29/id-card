@@ -1,11 +1,16 @@
 import { useEffect, useMemo, useRef } from 'react';
 import * as THREE from 'three';
-import { Canvas, useThree } from '@react-three/fiber';
+import { Canvas, useFrame, useThree } from '@react-three/fiber';
 import { CameraControls, ContactShadows, Environment, Lightformer } from '@react-three/drei';
 import type CameraControlsImpl from 'camera-controls';
 import { AssemblyRig } from './AssemblyRig';
 import { useStudioStore, type CameraPresetId } from '../../store/useStudioStore';
 import { detectSoftwareWebGL } from '../../utils/webglDetect';
+import {
+  createInitialFpsMonitorState,
+  detectMobileDevice,
+  updateFpsMonitor,
+} from '../../utils/performanceMonitor';
 
 interface CameraPresetPose {
   position: [number, number, number];
@@ -45,37 +50,51 @@ function CameraRigController({ isSoftwareGl }: { isSoftwareGl: boolean }) {
   const controlsRef = useRef<CameraControlsImpl>(null);
   const cameraPreset = useStudioStore((s) => s.cameraPreset);
   const cameraRequestNonce = useStudioStore((s) => s.cameraRequestNonce);
-  const { invalidate } = useThree();
+  const previewReel = useStudioStore((s) => s.previewReel);
+  const isRendering = useStudioStore((s) => s.renderProgress.isRendering);
+  const { invalidate, size, camera } = useThree();
 
   // Set initial hero framing immediately on mount (without sweeping from origin)
   const initializedRef = useRef(false);
+  const isPortrait = size.width > 0 && size.height > 0 && size.width / size.height < 0.85;
 
   useEffect(() => {
     const controls = controlsRef.current;
-    if (!controls) return;
+    if (!controls || previewReel || isRendering) return;
     const pose = CAMERA_PRESETS[cameraPreset];
     const shouldAnimate = initializedRef.current && !isSoftwareGl;
     initializedRef.current = true;
 
+    // Reset FOV cleanly when returning from cinematic reel
+    const persp = camera as THREE.PerspectiveCamera;
+    if (Math.abs(persp.fov - 36) > 0.05) {
+      persp.fov = 36;
+      persp.updateProjectionMatrix();
+    }
+
+    // Pull back gracefully on narrow mobile portrait viewports so card & 80cm lanyard fit cleanly
+    const distScale = isPortrait ? (cameraPreset === 'full' ? 1.18 : 1.28) : 1.0;
+
     controls.setLookAt(
-      pose.position[0],
+      pose.position[0] * distScale,
       pose.position[1],
-      pose.position[2],
+      pose.position[2] * distScale,
       pose.target[0],
       pose.target[1],
       pose.target[2],
       shouldAnimate
     );
     invalidate();
-  }, [cameraPreset, cameraRequestNonce, isSoftwareGl, invalidate]);
+  }, [cameraPreset, cameraRequestNonce, previewReel, isRendering, isPortrait, isSoftwareGl, camera, invalidate]);
 
   return (
     <CameraControls
       ref={controlsRef}
       makeDefault
+      enabled={!previewReel && !isRendering}
       smoothTime={isSoftwareGl ? 0.01 : 0.45}
       minDistance={5.0}
-      maxDistance={95.0}
+      maxDistance={115.0}
       minPolarAngle={0.18}
       maxPolarAngle={Math.PI - 0.18}
       dollySpeed={0.85}
@@ -89,12 +108,13 @@ function CameraRigController({ isSoftwareGl }: { isSoftwareGl: boolean }) {
 /**
  * Software-WebGL frame pacer: on SwiftShader/CPU renderers, we run R3F in `demand`
  * mode and schedule `invalidate()` after the GPU fence completes + 80ms pause when
- * continuous motion (autoSpin or flip settling) is active so browser responsiveness
- * and automated screenshots never stall.
+ * continuous motion (autoSpin, previewReel, or flip settling) is active so browser
+ * responsiveness and automated screenshots never stall.
  */
 function SoftwareGlPacer({ isSoftwareGl }: { isSoftwareGl: boolean }) {
   const { gl, invalidate } = useThree();
   const autoSpin = useStudioStore((s) => s.autoSpin);
+  const previewReel = useStudioStore((s) => s.previewReel);
   const isFlipped = useStudioStore((s) => s.isFlipped);
   const showLanyard = useStudioStore((s) => s.showLanyard);
   const hologramEnabled = useStudioStore((s) => s.hologramEnabled);
@@ -105,9 +125,9 @@ function SoftwareGlPacer({ isSoftwareGl }: { isSoftwareGl: boolean }) {
     if (!isSoftwareGl) return;
     const id = window.setTimeout(() => invalidate(), 16);
     return () => window.clearTimeout(id);
-  }, [isSoftwareGl, isFlipped, showLanyard, hologramEnabled, studioBackdrop, invalidate]);
+  }, [isSoftwareGl, isFlipped, showLanyard, hologramEnabled, studioBackdrop, previewReel, invalidate]);
 
-  // Step flip animation cleanly on software GL (~12 paced frames)
+  // Step flip animation cleanly on software GL
   useEffect(() => {
     if (!isSoftwareGl) return;
     let cancelled = false;
@@ -148,9 +168,9 @@ function SoftwareGlPacer({ isSoftwareGl }: { isSoftwareGl: boolean }) {
     };
   }, [isSoftwareGl, isFlipped, gl, invalidate]);
 
-  // Paced auto-spin on software GL
+  // Paced auto-spin or cinematic reel preview on software GL
   useEffect(() => {
-    if (!isSoftwareGl || !autoSpin) return;
+    if (!isSoftwareGl || (!autoSpin && !previewReel)) return;
     let cancelled = false;
     let timerId = 0;
 
@@ -185,7 +205,42 @@ function SoftwareGlPacer({ isSoftwareGl }: { isSoftwareGl: boolean }) {
       cancelled = true;
       window.clearTimeout(timerId);
     };
-  }, [isSoftwareGl, autoSpin, gl, invalidate]);
+  }, [isSoftwareGl, autoSpin, previewReel, gl, invalidate]);
+
+  return null;
+}
+
+function MobilePerformanceMonitor({ isSoftwareGl }: { isSoftwareGl: boolean }) {
+  const { invalidate } = useThree();
+  const monitorRef = useRef(createInitialFpsMonitorState(detectMobileDevice()));
+
+  // Re-evaluate mobile classification cleanly on viewport resize / orientation change
+  useEffect(() => {
+    const syncDeviceClass = () => {
+      const mobile = detectMobileDevice();
+      if (monitorRef.current.tier.isMobileDevice !== mobile) {
+        monitorRef.current = createInitialFpsMonitorState(mobile);
+        useStudioStore.getState().setPerformanceTier(monitorRef.current.tier);
+        invalidate();
+      }
+    };
+    syncDeviceClass();
+    window.addEventListener('resize', syncDeviceClass);
+    return () => window.removeEventListener('resize', syncDeviceClass);
+  }, [invalidate]);
+
+  useFrame((_state, delta) => {
+    const store = useStudioStore.getState();
+    const { nextState, tierChanged } = updateFpsMonitor(monitorRef.current, delta, {
+      isOfflineRendering: store.renderProgress.isRendering,
+      isSoftwareGl,
+    });
+    monitorRef.current = nextState;
+    if (tierChanged) {
+      store.setPerformanceTier(nextState.tier);
+      invalidate();
+    }
+  });
 
   return null;
 }
@@ -207,21 +262,31 @@ function StudioBackdropController() {
 export function StudioScene() {
   const isSoftwareGl = useMemo(() => detectSoftwareWebGL(), []);
   const studioBackdrop = useStudioStore((s) => s.studioBackdrop);
+  const performanceTier = useStudioStore((s) => s.performanceTier);
   const isLightBackdrop = studioBackdrop === 'studio-light';
+  const shadowsEnabled = !isSoftwareGl && performanceTier.highFidelityShadows;
+  const adaptiveDpr: number | [number, number] = isSoftwareGl
+    ? 1
+    : performanceTier.lowFpsDegraded
+      ? 1
+      : [1, performanceTier.maxDpr];
 
   return (
     <div
-      className="relative w-full h-full select-none"
+      className="relative w-full h-full select-none touch-none"
       data-testid="studio-viewport"
       data-software-gl={isSoftwareGl ? 'true' : 'false'}
+      data-mobile={performanceTier.isMobileDevice ? 'true' : 'false'}
+      data-msaa={String(performanceTier.msaaSamples)}
+      data-shadows={shadowsEnabled ? 'high' : 'off'}
     >
       <Canvas
         frameloop={isSoftwareGl ? 'demand' : 'always'}
-        dpr={isSoftwareGl ? 1 : [1, 2]}
-        shadows={!isSoftwareGl}
+        dpr={adaptiveDpr}
+        shadows={shadowsEnabled}
         camera={{ position: [4.2, 0.9, 20.6], fov: 36, near: 0.2, far: 280 }}
         gl={{
-          antialias: !isSoftwareGl,
+          antialias: !isSoftwareGl && performanceTier.msaaSamples > 0,
           alpha: true,
           preserveDrawingBuffer: true,
           powerPreference: 'high-performance',
@@ -236,6 +301,7 @@ export function StudioScene() {
           });
         }}
       >
+        <MobilePerformanceMonitor isSoftwareGl={isSoftwareGl} />
         <StudioBackdropController />
         <SoftwareGlPacer isSoftwareGl={isSoftwareGl} />
         <CameraRigController isSoftwareGl={isSoftwareGl} />
@@ -245,14 +311,14 @@ export function StudioScene() {
           args={[isLightBackdrop ? '#eef4ff' : '#cfdfff', isLightBackdrop ? '#c4c9d4' : '#181a24', 0.55]}
         />
 
-        {/* Warm Directional Key Light casting soft PCF shadows */}
+        {/* Warm Directional Key Light casting soft PCF shadows (auto-disabled below 45fps on mobile) */}
         <directionalLight
           position={[14, 24, 18]}
           intensity={1.95}
           color="#fff4e4"
-          castShadow={!isSoftwareGl}
-          shadow-mapSize-width={1024}
-          shadow-mapSize-height={1024}
+          castShadow={shadowsEnabled}
+          shadow-mapSize-width={performanceTier.isMobileDevice ? 512 : 1024}
+          shadow-mapSize-height={performanceTier.isMobileDevice ? 512 : 1024}
           shadow-camera-near={1}
           shadow-camera-far={75}
           shadow-camera-left={-18}
@@ -327,20 +393,22 @@ export function StudioScene() {
           />
         </Environment>
 
-        {/* Main 3D ID Card, Clasp Hardware & 80x2cm Lanyard Rig */}
+        {/* Main 3D ID Card, Swivel Clasp Hardware & 80x2cm Lanyard Rig */}
         <AssemblyRig />
 
-        {/* Soft studio floor ContactShadows */}
-        <ContactShadows
-          position={[0, -5.5, 0]}
-          opacity={isLightBackdrop ? 0.35 : 0.45}
-          scale={25}
-          blur={2.2}
-          far={15}
-          resolution={isSoftwareGl ? 256 : 512}
-          frames={1}
-          color={isLightBackdrop ? '#1e293b' : '#000000'}
-        />
+        {/* Soft studio floor ContactShadows (automatically disabled on mobile <45fps) */}
+        {performanceTier.highFidelityShadows && (
+          <ContactShadows
+            position={[0, -5.5, 0]}
+            opacity={isLightBackdrop ? 0.35 : 0.45}
+            scale={25}
+            blur={2.2}
+            far={15}
+            resolution={isSoftwareGl || performanceTier.isMobileDevice ? 256 : 512}
+            frames={1}
+            color={isLightBackdrop ? '#1e293b' : '#000000'}
+          />
+        )}
       </Canvas>
     </div>
   );

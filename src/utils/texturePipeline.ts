@@ -607,64 +607,147 @@ function drawLanyardTemplate(
   template: SampleTemplateId,
   bgColor: string
 ) {
-  // Base polyester weave color
-  ctx.fillStyle = bgColor;
-  ctx.fillRect(0, 0, w, h);
+  // High-contrast dye-sublimated woven polyester base
+  if (template === 'tech-vip') {
+    const isDefaultBg = bgColor.toLowerCase() === '#1d2b8a' || bgColor.toLowerCase() === '#161b33';
+    if (isDefaultBg) {
+      // Vibrant multi-stop royal cobalt -> electric indigo -> deep violet -> teal energy ribbon
+      const grad = ctx.createLinearGradient(0, 0, w, 0);
+      grad.addColorStop(0.0, '#1d4ed8');
+      grad.addColorStop(0.25, '#4338ca');
+      grad.addColorStop(0.5, '#6d28d9');
+      grad.addColorStop(0.75, '#0f766e');
+      grad.addColorStop(1.0, '#1d4ed8');
+      ctx.fillStyle = grad;
+    } else {
+      ctx.fillStyle = bgColor;
+    }
+    ctx.fillRect(0, 0, w, h);
 
-  // Subtle stitched edge border lines along top & bottom of 2.0 cm ribbon
-  ctx.strokeStyle = 'rgba(255,255,255,0.16)';
-  ctx.lineWidth = 2;
-  ctx.setLineDash([8, 6]);
-  ctx.beginPath();
-  ctx.moveTo(0, 6);
-  ctx.lineTo(w, 6);
-  ctx.moveTo(0, h - 6);
-  ctx.lineTo(w, h - 6);
-  ctx.stroke();
-  ctx.setLineDash([]);
+    // Subtle high-contrast dark center track so white/neon typography pops sharply
+    ctx.fillStyle = 'rgba(8, 12, 32, 0.34)';
+    ctx.fillRect(0, 10, w, h - 20);
 
-  // Repeating brand typography along the 80cm strap (2400 x 60 px)
+    // Vivid electric cyan & emerald woven top/bottom racing stripes
+    ctx.fillStyle = '#38bdf8';
+    ctx.fillRect(0, 2, w, 4);
+    ctx.fillStyle = '#34d399';
+    ctx.fillRect(0, h - 6, w, 4);
+
+    // Subtle stitched thread highlight inside the stripes
+    ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([10, 6]);
+    ctx.beginPath();
+    ctx.moveTo(0, 8);
+    ctx.lineTo(w, 8);
+    ctx.moveTo(0, h - 8);
+    ctx.lineTo(w, h - 8);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  } else if (template === 'corporate-sec') {
+    const isDefaultBg = bgColor.toLowerCase() === '#0369a1' || bgColor.toLowerCase() === '#0f2942';
+    if (isDefaultBg) {
+      const grad = ctx.createLinearGradient(0, 0, w, 0);
+      grad.addColorStop(0, '#0284c7');
+      grad.addColorStop(0.5, '#1d4ed8');
+      grad.addColorStop(1, '#0284c7');
+      ctx.fillStyle = grad;
+    } else {
+      ctx.fillStyle = bgColor;
+    }
+    ctx.fillRect(0, 0, w, h);
+
+    // Crisp bright cyan & pure white edge piping
+    ctx.fillStyle = '#7dd3fc';
+    ctx.fillRect(0, 2, w, 4);
+    ctx.fillRect(0, h - 6, w, 4);
+    ctx.fillStyle = 'rgba(255,255,255,0.28)';
+    ctx.fillRect(0, 8, w, 1.5);
+    ctx.fillRect(0, h - 9.5, w, 1.5);
+  } else {
+    // Minimalist obsidian & luminous champagne-gold weave
+    ctx.fillStyle = bgColor || '#111115';
+    ctx.fillRect(0, 0, w, h);
+
+    ctx.fillStyle = '#f5c542';
+    ctx.fillRect(0, 3, w, 3.5);
+    ctx.fillRect(0, h - 6.5, w, 3.5);
+  }
+
+  // Repeating high-contrast brand graphics along the 80cm strap (2400 x 60 px)
   const repeatCount = 8;
   const step = w / repeatCount;
 
   ctx.textBaseline = 'middle';
   for (let i = 0; i < repeatCount; i++) {
-    const startX = i * step + 28;
+    const startX = i * step + 20;
     if (template === 'tech-vip') {
-      // Indigo/emerald accent diamond
-      ctx.fillStyle = '#10b981';
+      // Bright emerald-to-cyan diamond emblem
+      ctx.fillStyle = '#34d399';
       ctx.beginPath();
       ctx.moveTo(startX, h / 2);
-      ctx.lineTo(startX + 9, h / 2 - 9);
-      ctx.lineTo(startX + 18, h / 2);
-      ctx.lineTo(startX + 9, h / 2 + 9);
+      ctx.lineTo(startX + 10, h / 2 - 10);
+      ctx.lineTo(startX + 20, h / 2);
+      ctx.lineTo(startX + 10, h / 2 + 10);
       ctx.closePath();
       ctx.fill();
 
-      ctx.fillStyle = '#f8fafc';
-      ctx.font = '700 22px "Plus Jakarta Sans", sans-serif';
-      ctx.fillText('MERIDIAN 2026', startX + 30, h / 2 + 1);
-
-      ctx.fillStyle = '#818cf8';
-      ctx.font = '600 17px "JetBrains Mono", monospace';
-      ctx.fillText('VIP', startX + 224, h / 2 + 1);
-    } else if (template === 'corporate-sec') {
-      ctx.fillStyle = '#38bdf8';
-      ctx.fillRect(startX, h / 2 - 9, 10, 18);
-
-      ctx.fillStyle = '#f8fafc';
-      ctx.font = '700 21px "Plus Jakarta Sans", sans-serif';
-      ctx.fillText('NORTHSTAR AEROSPACE', startX + 24, h / 2 + 1);
-    } else {
-      ctx.strokeStyle = '#d4af37';
-      ctx.lineWidth = 2;
+      // Inner white core glint
+      ctx.fillStyle = '#ecfeff';
       ctx.beginPath();
-      ctx.arc(startX + 9, h / 2, 7, 0, Math.PI * 2);
+      ctx.moveTo(startX + 6, h / 2);
+      ctx.lineTo(startX + 10, h / 2 - 4);
+      ctx.lineTo(startX + 14, h / 2);
+      ctx.lineTo(startX + 10, h / 2 + 4);
+      ctx.closePath();
+      ctx.fill();
+
+      // Crisp pure white bold wordmark with subtle dark shadow for high readability
+      ctx.save();
+      ctx.shadowColor = 'rgba(5, 8, 22, 0.75)';
+      ctx.shadowBlur = 3;
+      ctx.shadowOffsetY = 1;
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '800 23px "Plus Jakarta Sans", sans-serif';
+      ctx.fillText('MERIDIAN 2026', startX + 30, h / 2 + 1);
+      ctx.restore();
+
+      // Vibrant cyan-emerald VIP pill tag
+      ctx.fillStyle = '#10b981';
+      drawRoundedRect(ctx, startX + 216, h / 2 - 12, 52, 24, 6);
+      ctx.fill();
+      ctx.fillStyle = '#041214';
+      ctx.font = '800 15px "JetBrains Mono", monospace';
+      ctx.fillText('VIP', startX + 228, h / 2 + 1);
+    } else if (template === 'corporate-sec') {
+      // Dual crisp geometric emblem bars
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(startX, h / 2 - 10, 7, 20);
+      ctx.fillStyle = '#38bdf8';
+      ctx.fillRect(startX + 10, h / 2 - 5, 7, 15);
+
+      ctx.save();
+      ctx.shadowColor = 'rgba(2, 18, 42, 0.65)';
+      ctx.shadowBlur = 3;
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '800 22px "Plus Jakarta Sans", sans-serif';
+      ctx.fillText('NORTHSTAR AERO', startX + 28, h / 2 + 1);
+      ctx.restore();
+    } else {
+      ctx.strokeStyle = '#fbbf24';
+      ctx.lineWidth = 2.6;
+      ctx.beginPath();
+      ctx.arc(startX + 10, h / 2, 8, 0, Math.PI * 2);
       ctx.stroke();
 
-      ctx.fillStyle = '#e4e4e7';
-      ctx.font = '600 20px "JetBrains Mono", monospace';
-      ctx.fillText('ATELIER KŌBŌ', startX + 30, h / 2 + 1);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '700 21px "JetBrains Mono", monospace';
+      ctx.fillText('ATELIER KŌBŌ', startX + 32, h / 2 + 1);
+
+      ctx.fillStyle = '#fbbf24';
+      ctx.font = '600 15px "JetBrains Mono", monospace';
+      ctx.fillText('TOKYO', startX + 212, h / 2 + 1);
     }
   }
 }

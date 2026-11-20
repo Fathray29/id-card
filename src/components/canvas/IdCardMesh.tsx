@@ -33,6 +33,7 @@ export function IdCardMesh() {
   const edgePreset = useStudioStore((s) => s.edgePreset);
   const hologramEnabled = useStudioStore((s) => s.hologramEnabled);
   const hologramIntensity = useStudioStore((s) => s.hologramIntensity);
+  const highFidelityShadows = useStudioStore((s) => s.performanceTier.highFidelityShadows);
 
   // Procedural CR80 geometry & matching hologram overlay geometry
   const cardGeometry = useMemo(() => createCardGeometry(), []);
@@ -240,8 +241,8 @@ export function IdCardMesh() {
       <mesh
         geometry={cardGeometry}
         material={materials as unknown as THREE.Material[]}
-        castShadow
-        receiveShadow
+        castShadow={highFidelityShadows}
+        receiveShadow={highFidelityShadows}
         name="cr80-id-card"
       />
       {hologramEnabled && (
