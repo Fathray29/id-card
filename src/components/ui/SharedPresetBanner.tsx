@@ -49,8 +49,8 @@ export function SharedPresetBanner() {
   );
 
   return (
-    <div className="pointer-events-none absolute inset-x-0 top-16 lg:top-4 z-20 flex justify-center px-3">
-      <div className="pointer-events-auto flex items-center gap-2.5 max-w-lg px-3.5 py-2 rounded-xl bg-zinc-900/92 border border-white/12 shadow-xl text-xs">
+    <div className="pointer-events-none absolute inset-x-0 top-14 lg:top-[68px] z-20 flex justify-center px-3">
+      <div className="pointer-events-auto flex items-center gap-2.5 max-w-lg px-3.5 py-2 rounded-xl bg-zinc-950/92 backdrop-blur-xl border border-white/12 shadow-xl text-xs">
         {loadingSharedLink ? (
           <span className="flex items-center gap-2 text-zinc-200">
             <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-400" />

@@ -393,7 +393,7 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   cardCaseEnabled: false,
   toggleCardCase: () => set((state) => ({ cardCaseEnabled: !state.cardCaseEnabled })),
   setCardCaseEnabled: (cardCaseEnabled) => set({ cardCaseEnabled }),
-  cardCaseStyle: 'matte-obsidian',
+  cardCaseStyle: 'frosted-clear',
   setCardCaseStyle: (cardCaseStyle) => set({ cardCaseStyle }),
 
   edgePreset: 'black',
@@ -412,13 +412,16 @@ export const useStudioStore = create<StudioState>((set, get) => ({
   setStudioBackdrop: (studioBackdrop) => set({ studioBackdrop }),
 
   placementScene: 'studio',
-  setPlacementScene: (placementScene) =>
+  setPlacementScene: (placementScene) => {
     set((state) => ({
       placementScene,
       previewReel: false,
+      autoSpin: false,
       cameraPreset: placementScene === 'studio' ? 'front' : 'full',
       cameraRequestNonce: state.cameraRequestNonce + 1,
-    })),
+    }));
+    get().rigBridge?.resetSimulation();
+  },
 
   showLanyard: true,
   toggleLanyard: () => set((state) => ({ showLanyard: !state.showLanyard })),

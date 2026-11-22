@@ -18,9 +18,9 @@ const HARDWARE_MATERIAL_CONFIGS: Record<
   HardwareFinish,
   { color: string; metalness: number; roughness: number; anisotropy: number }
 > = {
-  'brushed-steel': { color: '#dde2eb', metalness: 0.88, roughness: 0.28, anisotropy: 0.8 },
+  'brushed-steel': { color: '#e2e7f0', metalness: 0.9, roughness: 0.22, anisotropy: 0.75 },
   'matte-black': { color: '#2b2e35', metalness: 0.78, roughness: 0.42, anisotropy: 0.4 },
-  'champagne-gold': { color: '#e2bd6a', metalness: 0.9, roughness: 0.24, anisotropy: 0.85 },
+  'champagne-gold': { color: '#e2bd6a', metalness: 0.9, roughness: 0.22, anisotropy: 0.85 },
 };
 
 function useHardwareMaterials() {
@@ -34,19 +34,59 @@ function useHardwareMaterials() {
       metalness: cfg.metalness,
       roughness: cfg.roughness,
       anisotropy: cfg.anisotropy,
-      clearcoat: 0.25,
-      clearcoatRoughness: 0.18,
-      envMapIntensity: 1.35,
+      clearcoat: 0.3,
+      clearcoatRoughness: 0.14,
+      envMapIntensity: 1.45,
     });
   }, []);
 
   const accentHardwareMaterial = useMemo(() => {
     return new THREE.MeshPhysicalMaterial({
-      color: '#aeb5c2',
+      color: '#b8c0ce',
       metalness: 0.92,
-      roughness: 0.34,
+      roughness: 0.28,
       anisotropy: 0.6,
-      envMapIntensity: 1.2,
+      clearcoat: 0.2,
+      clearcoatRoughness: 0.2,
+      envMapIntensity: 1.3,
+    });
+  }, []);
+
+  // Dedicated smooth isotropic dome material for pressed double-cap rivets (prevents polar anisotropy starburst!)
+  const rivetMaterial = useMemo(() => {
+    const cfg = HARDWARE_MATERIAL_CONFIGS['brushed-steel'];
+    return new THREE.MeshPhysicalMaterial({
+      color: cfg.color,
+      metalness: 0.92,
+      roughness: 0.19,
+      anisotropy: 0,
+      clearcoat: 0.32,
+      clearcoatRoughness: 0.12,
+      envMapIntensity: 1.5,
+    });
+  }, []);
+
+  // Authentic satin-matte injection-molded black POM/acetal for center-push quick-release buckle female sleeve
+  const buckleMaterial = useMemo(() => {
+    return new THREE.MeshPhysicalMaterial({
+      color: '#22252c',
+      metalness: 0.04,
+      roughness: 0.42,
+      clearcoat: 0.24,
+      clearcoatRoughness: 0.34,
+      envMapIntensity: 1.15,
+    });
+  }, []);
+
+  // Velvety dark satin POM for the concave center-push circular thumb button & cantilevered male insert
+  const buckleAccentMaterial = useMemo(() => {
+    return new THREE.MeshPhysicalMaterial({
+      color: '#1b1e24',
+      metalness: 0.03,
+      roughness: 0.46,
+      clearcoat: 0.20,
+      clearcoatRoughness: 0.36,
+      envMapIntensity: 1.1,
     });
   }, []);
 
@@ -54,8 +94,11 @@ function useHardwareMaterials() {
     return () => {
       hardwareMaterial.dispose();
       accentHardwareMaterial.dispose();
+      rivetMaterial.dispose();
+      buckleMaterial.dispose();
+      buckleAccentMaterial.dispose();
     };
-  }, [hardwareMaterial, accentHardwareMaterial]);
+  }, [hardwareMaterial, accentHardwareMaterial, rivetMaterial, buckleMaterial, buckleAccentMaterial]);
 
   useEffect(() => {
     const cfg = HARDWARE_MATERIAL_CONFIGS[hardwareFinish];
@@ -65,15 +108,26 @@ function useHardwareMaterials() {
     hardwareMaterial.anisotropy = cfg.anisotropy;
     hardwareMaterial.needsUpdate = true;
 
-    const accentColor = new THREE.Color(cfg.color).multiplyScalar(0.84);
+    const accentColor = new THREE.Color(cfg.color).multiplyScalar(0.86);
     accentHardwareMaterial.color.copy(accentColor);
     accentHardwareMaterial.metalness = cfg.metalness;
-    accentHardwareMaterial.roughness = Math.min(0.65, cfg.roughness + 0.14);
+    accentHardwareMaterial.roughness = Math.min(0.62, cfg.roughness + 0.12);
     accentHardwareMaterial.needsUpdate = true;
-    invalidate();
-  }, [hardwareFinish, hardwareMaterial, accentHardwareMaterial, invalidate]);
 
-  return { hardwareMaterial, accentHardwareMaterial };
+    rivetMaterial.color.set(cfg.color);
+    rivetMaterial.metalness = hardwareFinish === 'matte-black' ? 0.8 : 0.92;
+    rivetMaterial.roughness = hardwareFinish === 'matte-black' ? 0.36 : 0.19;
+    rivetMaterial.needsUpdate = true;
+    invalidate();
+  }, [hardwareFinish, hardwareMaterial, accentHardwareMaterial, rivetMaterial, invalidate]);
+
+  return {
+    hardwareMaterial,
+    accentHardwareMaterial,
+    rivetMaterial,
+    buckleMaterial,
+    buckleAccentMaterial,
+  };
 }
 
 export interface LanyardMeshProps {
@@ -83,7 +137,11 @@ export interface LanyardMeshProps {
 
 /**
  * Renders the 80.0 x 2.0 cm continuous dye-sublimated woven polyester strap
- * plus the upper fixed crimp/D-ring/swivel-barrel hardware.
+ * plus the upper fixed reference hardware assembly:
+ *  - Upper & lower polished domed rivets ("paku keling")
+ *  - Matte-black side-release stopper buckle with center circular boss & side pinch tabs
+ *  - Lower detachable woven webbing tab (mapped seamlessly with the active lanyard design)
+ *  - Circular polished split O-ring ("ring O") & turned swivel barrel collar
  */
 export function LanyardMesh({ neckPivotY }: LanyardMeshProps) {
   const { gl, invalidate } = useThree();
@@ -97,7 +155,13 @@ export function LanyardMesh({ neckPivotY }: LanyardMeshProps) {
     [placementScene]
   );
   const hardwareGeos = useMemo(() => createHardwareGeometries(), []);
-  const { hardwareMaterial, accentHardwareMaterial } = useHardwareMaterials();
+  const {
+    hardwareMaterial,
+    accentHardwareMaterial,
+    rivetMaterial,
+    buckleMaterial,
+    buckleAccentMaterial,
+  } = useHardwareMaterials();
 
   // Procedural 256x256 twill polyester normal & roughness maps
   const fabricMaps = useMemo(() => {
@@ -205,31 +269,49 @@ export function LanyardMesh({ neckPivotY }: LanyardMeshProps) {
         name="lanyard-strap"
       />
 
-      {/* Upper fixed metallic hardware attached to lanyard apex (crimp + D-ring + swivel barrel) */}
+      {/* Upper fixed stopper buckle + riveted webbing tab + split O-ring + swivel collar */}
       <group name="upper-clasp-hardware-group">
         <mesh
-          geometry={hardwareGeos.crimpClamp}
+          geometry={hardwareGeos.buckleBody}
+          material={buckleMaterial}
+          castShadow={highFidelityShadows}
+          receiveShadow={highFidelityShadows}
+          name="lanyard-stopper-buckle-body"
+        />
+        <mesh
+          geometry={hardwareGeos.buckleAccent}
+          material={buckleAccentMaterial}
+          castShadow={highFidelityShadows}
+          receiveShadow={highFidelityShadows}
+          name="lanyard-stopper-buckle-accent"
+        />
+        <mesh
+          geometry={hardwareGeos.lowerStrapTab}
+          material={strapMaterial}
+          castShadow={highFidelityShadows}
+          receiveShadow={highFidelityShadows}
+          name="lanyard-lower-strap-tab"
+        />
+        <mesh
+          geometry={hardwareGeos.rivets}
+          material={rivetMaterial}
+          castShadow={highFidelityShadows}
+          receiveShadow={highFidelityShadows}
+          name="lanyard-rivet-studs"
+        />
+        <mesh
+          geometry={hardwareGeos.splitRing}
           material={hardwareMaterial}
           castShadow={highFidelityShadows}
           receiveShadow={highFidelityShadows}
-        />
-        <mesh
-          geometry={hardwareGeos.crimpCollar}
-          material={accentHardwareMaterial}
-          castShadow={highFidelityShadows}
-          receiveShadow={highFidelityShadows}
-        />
-        <mesh
-          geometry={hardwareGeos.swivelRing}
-          material={hardwareMaterial}
-          castShadow={highFidelityShadows}
-          receiveShadow={highFidelityShadows}
+          name="lanyard-split-o-ring"
         />
         <mesh
           geometry={hardwareGeos.swivelBarrel}
           material={accentHardwareMaterial}
           castShadow={highFidelityShadows}
           receiveShadow={highFidelityShadows}
+          name="lanyard-swivel-barrel"
         />
       </group>
     </group>
@@ -237,7 +319,7 @@ export function LanyardMesh({ neckPivotY }: LanyardMeshProps) {
 }
 
 /**
- * Lower swivel lobster clasp assembly (body + flush thumb gate + snug hook loop)
+ * Lower swivel teardrop lobster clasp assembly (stem + spring gate + pivot pin + thumb trigger + oval hook loop)
  * mounted inside the swivel pivot so the clasp rotates physically WITH the ID card during 180° flips.
  */
 export function SwivelClaspMesh({ pivotOffsetY }: { pivotOffsetY: number }) {
@@ -258,18 +340,21 @@ export function SwivelClaspMesh({ pivotOffsetY }: { pivotOffsetY: number }) {
         material={hardwareMaterial}
         castShadow={highFidelityShadows}
         receiveShadow={highFidelityShadows}
+        name="lobster-clasp-body"
       />
       <mesh
         geometry={hardwareGeos.claspThumbTrigger}
         material={accentHardwareMaterial}
         castShadow={highFidelityShadows}
         receiveShadow={highFidelityShadows}
+        name="lobster-clasp-trigger"
       />
       <mesh
         geometry={hardwareGeos.claspHookLoop}
         material={hardwareMaterial}
         castShadow={highFidelityShadows}
         receiveShadow={highFidelityShadows}
+        name="lobster-clasp-hook-loop"
       />
     </group>
   );

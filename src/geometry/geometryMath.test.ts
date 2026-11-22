@@ -147,27 +147,28 @@ test('Lanyard CatmullRomCurve3 normalizes to exact 80.00 cm (+/- 0.01 cm) with a
   geometry.dispose();
 });
 
-test('Hardware geometries build all 7 metallic parts with snugly seated clasp hook & barrel mating', () => {
+test('Hardware geometries build 3-stage center-push buckle + riveted folded loop + wide D-ring + 360 swivel + lobster-claw clasp', () => {
   const hw = createHardwareGeometries();
-  assert.ok(hw.crimpClamp.attributes.position.count > 0);
-  assert.ok(hw.crimpCollar.attributes.position.count > 0);
-  assert.ok(hw.swivelRing.attributes.position.count > 0);
+  assert.ok(hw.buckleBody.attributes.position.count > 0);
+  assert.ok(hw.buckleAccent.attributes.position.count > 0);
+  assert.ok(hw.lowerStrapTab.attributes.position.count > 0);
+  assert.ok(hw.rivets.attributes.position.count > 0);
+  assert.ok(hw.splitRing.attributes.position.count > 0);
   assert.ok(hw.swivelBarrel.attributes.position.count > 0);
   assert.ok(hw.claspBody.attributes.position.count > 0);
   assert.ok(hw.claspThumbTrigger.attributes.position.count > 0);
   assert.ok(hw.claspHookLoop.attributes.position.count > 0);
 
-  // Verify hook loop passes cleanly through the slot punch (y in [3.63, 3.93] cm)
+  // Stage 3: Verify lobster-claw hook jaw passes cleanly through the slot punch (y in [3.63, 3.93] cm)
   hw.claspHookLoop.computeBoundingBox();
   const hookBb = hw.claspHookLoop.boundingBox!;
   assert.ok(
     hookBb.min.y >= 3.74 && hookBb.min.y <= 3.83,
     `Hook min Y ${hookBb.min.y} should sit snugly inside slot punch without floating gap`
   );
-  // Hook wraps snugly around PVC thickness (+/-0.046 cm) without protruding excessively
-  assert.ok(hookBb.max.z > 0.14 && hookBb.max.z < 0.25, `Hook max Z ${hookBb.max.z} should be snug`);
+  assert.ok(hookBb.max.z > 0.14 && hookBb.max.z < 0.45, `Hook max Z ${hookBb.max.z} should form clean teardrop jaw`);
 
-  // Verify clasp body mates directly into swivel barrel bottom (y = 5.02 cm) with zero floating air gap
+  // Verify cast clasp body mates directly into 360° swivel barrel bottom (y = 5.46 cm) with zero air gap
   hw.swivelBarrel.computeBoundingBox();
   hw.claspBody.computeBoundingBox();
   assert.ok(
@@ -175,13 +176,44 @@ test('Hardware geometries build all 7 metallic parts with snugly seated clasp ho
     'Clasp body must seat solidly into swivel barrel bottom'
   );
 
+  // Verify wide D-ring spans wider than the 2.0 cm strap (> 2.15 cm) and interlocks cleanly with swivel eye & lower folded strap
+  hw.splitRing.computeBoundingBox();
+  hw.lowerStrapTab.computeBoundingBox();
+  hw.buckleBody.computeBoundingBox();
+  hw.buckleAccent.computeBoundingBox();
+
+  const dRingWidth = hw.splitRing.boundingBox!.max.x - hw.splitRing.boundingBox!.min.x;
+  assert.ok(
+    dRingWidth > 2.15 && dRingWidth < 2.6,
+    `Wide D-ring width ${dRingWidth} must exceed 2.0 cm strap so flat bar keeps webbing spread`
+  );
+  assert.ok(
+    hw.splitRing.boundingBox!.min.y < hw.swivelBarrel.boundingBox!.max.y,
+    'D-ring arch must interlock cleanly through 360° swivel eye'
+  );
+  assert.ok(
+    hw.lowerStrapTab.boundingBox!.min.y < hw.splitRing.boundingBox!.max.y - 0.12,
+    'Folded 2-layer lower strap loop must fully enclose the flat straight top bar of the D-ring'
+  );
+  assert.ok(
+    hw.lowerStrapTab.boundingBox!.max.y > hw.buckleBody.boundingBox!.min.y,
+    'Lower strap loop must wrap cleanly around bottom anchor bar of center-push buckle'
+  );
+  // Stage 1: Verify concave circular center-push thumb button sits flush on front (+Z) of female housing
+  assert.ok(
+    hw.buckleAccent.boundingBox!.max.z >= hw.buckleBody.boundingBox!.max.z - 0.03,
+    'Concave center-push circular thumb button must reach front cutout face of female sleeve'
+  );
+
   disposeHardwareGeometries(hw);
 });
 
-test('Protective 3D badge case aligns top header lug with clasp hook and frames CR80 card cleanly', () => {
+test('Protective 3D badge case builds full-width arched 3-hole polycarbonate shell with side rails and rear thumb cutout', () => {
   const caseGeos = createCardCaseGeometries();
   assert.ok(caseGeos.caseFrame.attributes.position.count > 0);
   assert.ok(caseGeos.caseHeaderTab.attributes.position.count > 0);
+  assert.ok(caseGeos.caseMoldedDetails.attributes.position.count > 0);
+  assert.ok(caseGeos.caseBackPlate.attributes.position.count > 0);
   assert.ok(caseGeos.caseWindowLens.attributes.position.count > 0);
 
   caseGeos.caseFrame.computeBoundingBox();
@@ -191,11 +223,18 @@ test('Protective 3D badge case aligns top header lug with clasp hook and frames 
   assert.ok(frameSize.x > CARD_SPECS.width + 0.6, 'Case frame should surround 5.4 cm card width');
   assert.ok(frameSize.z > CARD_SPECS.thickness + 0.15, 'Case frame should enclose card thickness');
 
-  // Header tab top edge aligns cleanly with bare card top (y = 4.28 cm) so clasp body clears by 0.10 cm
+  // Full-width arched dome header spans full case width and aligns cleanly with bare card top (y = 4.28 cm)
   caseGeos.caseHeaderTab.computeBoundingBox();
   const tabBb = caseGeos.caseHeaderTab.boundingBox!;
+  const tabSize = new THREE.Vector3();
+  tabBb.getSize(tabSize);
+  assert.ok(tabSize.x > CASE_SPECS.outerWidth - 0.15, `Arched dome header width ${tabSize.x} must span full case width`);
   assert.ok(Math.abs(tabBb.max.y - CASE_SPECS.headerTopY) < 0.03);
   assert.ok(tabBb.max.z < 0.07, 'Header tab thickness must fit inside clasp hook loop clearance');
+
+  // Verify rear back plate sits behind the enclosed card with clean Z placement
+  caseGeos.caseBackPlate.computeBoundingBox();
+  assert.ok(caseGeos.caseBackPlate.boundingBox!.max.z < -0.05, 'Back plate must sit behind CR80 card');
 
   disposeCardCaseGeometries(caseGeos);
 });

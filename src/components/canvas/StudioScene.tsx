@@ -376,10 +376,9 @@ export function StudioScene() {
 
         {/* Procedural Studio Softbox & Negative-Fill Flag HDRI Environment (Zero external HDR 404s) */}
         <Environment
-          key={isLightBackdrop ? 'env-light' : 'env-dark'}
           resolution={256}
           frames={1}
-          environmentIntensity={isLightBackdrop ? 0.72 : 0.92}
+          environmentIntensity={isLightBackdrop ? 0.68 : 0.92}
         >
           {/* Overhead studio strip softbox */}
           <Lightformer
@@ -393,7 +392,7 @@ export function StudioScene() {
           {/* Controlled front bounce card for brushed steel gleam without washing out card artwork */}
           <Lightformer
             form="rect"
-            intensity={isLightBackdrop ? 0.85 : 1.25}
+            intensity={1.1}
             color="#e8eef7"
             scale={[14, 12, 1]}
             position={[4, 12, 26]}

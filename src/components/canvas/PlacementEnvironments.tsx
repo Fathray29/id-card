@@ -515,13 +515,12 @@ function HangerPlacementEnv({ highFidelityShadows }: { highFidelityShadows: bool
     };
   }, [resources]);
 
-  const { railY, railRadius, rackHalfWidthX, rackFloorY, trouserBarY, shoulderSpanHalfX } =
-    PLACEMENT_SPECS.hanger;
+  const { railY, railRadius, rackHalfWidthX, rackFloorY } = PLACEMENT_SPECS.hanger;
   const uprightHeight = railY - rackFloorY;
 
   return (
     <group name="placement-env-hanger">
-      {/* Composite Sculpted Walnut Coat Hanger */}
+      {/* Composite Sculpted Solid-Walnut Wishbone Coat Hanger */}
       <group name="sculpted-coat-hanger">
         <mesh
           geometry={resources.hanger.woodBody}
@@ -539,23 +538,6 @@ function HangerPlacementEnv({ highFidelityShadows }: { highFidelityShadows: bool
           material={resources.brassMat}
           castShadow={highFidelityShadows}
         />
-        <mesh
-          geometry={resources.hanger.trouserBar}
-          material={resources.walnutMat}
-          castShadow={highFidelityShadows}
-          receiveShadow={highFidelityShadows}
-        />
-        {/* Twin Brass Trouser-Bar End Ferrules */}
-        {[-1, 1].map((side) => (
-          <mesh
-            key={side}
-            material={resources.brassMat}
-            position={[side * (shoulderSpanHalfX - 3.1), trouserBarY, 0.45]}
-            rotation={[0, 0, Math.PI / 2]}
-          >
-            <cylinderGeometry args={[0.56, 0.56, 1.1, 16]} />
-          </mesh>
-        ))}
       </group>
 
       {/* Open-Back Minimalist Boutique Garment Rail (zero occlusion for 360° orbit!) */}

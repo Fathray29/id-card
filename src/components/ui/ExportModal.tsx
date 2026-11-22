@@ -249,10 +249,15 @@ export function ExportModal() {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/75 p-0 sm:p-4"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/75 backdrop-blur-xs p-0 sm:p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="export-modal-title"
+      onClick={(e) => {
+        if (e.target === e.currentTarget && !renderProgress.isRendering) {
+          closeExportModal();
+        }
+      }}
     >
       <div className="w-full max-w-lg max-h-[92dvh] flex flex-col rounded-t-3xl sm:rounded-2xl bg-zinc-900 border border-white/12 shadow-2xl overflow-hidden">
         {/* Header */}
@@ -403,9 +408,22 @@ export function ExportModal() {
                 </div>
               </div>
 
-              <label className="flex items-center justify-between gap-3 p-3 rounded-xl bg-[#0b0d10] border border-white/10 cursor-pointer">
+              <label
+                className={`flex items-center justify-between gap-3 p-3 rounded-xl bg-[#0b0d10] border border-white/10 transition-opacity ${
+                  stillFormat !== 'png'
+                    ? 'opacity-50 cursor-not-allowed'
+                    : 'cursor-pointer hover:border-white/20'
+                }`}
+              >
                 <div>
-                  <div className="text-xs font-semibold text-zinc-200">Transparent Background</div>
+                  <div className="text-xs font-semibold text-zinc-200 flex items-center gap-2">
+                    Transparent Background
+                    {stillFormat !== 'png' && (
+                      <span className="text-[10px] font-mono font-normal text-zinc-400">
+                        (PNG only)
+                      </span>
+                    )}
+                  </div>
                   <div className="text-[11px] text-zinc-400 mt-0.5">
                     Clean premultiplied alpha cutout — zero floor shadows or edge fringing
                   </div>

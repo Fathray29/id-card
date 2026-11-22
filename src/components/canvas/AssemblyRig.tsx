@@ -74,9 +74,18 @@ export function AssemblyRig() {
       }
       if (swivelClaspRef.current) {
         // Swivel joint rotates both the lobster clasp AND the ID card together around Y (zero clipping!)
-        // In table flat-lay mode, keep swivel locked flat so the card never slices into the tabletop.
-        swivelClaspRef.current.rotation.y =
-          store.placementScene === 'table' ? 0 : pose.thetaY;
+        // In table flat-lay mode, smoothly lift the card up off the desk mat (+Z local = +Y world)
+        // during mid-flip so it turns 180° in mid-air and settles flush on its back face!
+        swivelClaspRef.current.rotation.y = pose.thetaY;
+        if (store.placementScene === 'table') {
+          const halfCardWidth = store.cardCaseEnabled
+            ? CASE_SPECS.outerWidth / 2
+            : CARD_SPECS.width / 2;
+          swivelClaspRef.current.position.z =
+            Math.abs(Math.sin(pose.thetaY)) * (halfCardWidth + 0.45);
+        } else {
+          swivelClaspRef.current.position.z = 0;
+        }
       }
       if (cardPendulumRef.current) {
         cardPendulumRef.current.rotation.x = Math.max(

@@ -56,14 +56,12 @@ export const PLACEMENT_SPECS = {
   },
   hanger: {
     /** Exact top wooden ridge center Y where the 80 cm lanyard sits flush on the walnut hanger */
-    woodTopY: 42.65,
-    woodBottomY: 38.4,
+    woodTopY: 47.05,
+    woodBottomY: 42.8,
     woodHalfDepthZ: 0.62,
     shoulderSpanHalfX: 21.0,
-    trouserBarY: 30.8,
-    trouserBarRadius: 0.46,
     hookStemRadius: 0.22,
-    railY: 50.6,
+    railY: 55.0,
     railRadius: 0.95,
     rackHalfWidthX: 34.0,
     rackFloorY: -12.0,
@@ -100,7 +98,84 @@ export const TORSO_PROFILES: readonly TorsoSliceProfile[] = [
   { y: 35.6, centerZ: -9.55, rx: 5.75, rzFront: 5.4, rzBack: 5.55 }, // Top neck collar rim
 ];
 
-/** Evaluates smoothly interpolated torso slice parameters at any height y (cm). */
+/**
+ * Computes Fritsch-Carlson monotone cubic Hermite (PCHIP) tangents for a 1D profile array.
+ * Guarantees C1 smoothness across all anatomical slices with ZERO washboard shelves or overshoot.
+ */
+function computePchipSlopes(xs: number[], ys: number[]): number[] {
+  const n = xs.length;
+  const h: number[] = [];
+  const delta: number[] = [];
+  for (let i = 0; i < n - 1; i++) {
+    const dx = Math.max(1e-6, xs[i + 1] - xs[i]);
+    h.push(dx);
+    delta.push((ys[i + 1] - ys[i]) / dx);
+  }
+
+  const m = new Array<number>(n).fill(0);
+  // Interior slopes: weighted harmonic mean when adjacent secants share sign, else 0 (monotone)
+  for (let i = 1; i < n - 1; i++) {
+    if (delta[i - 1] * delta[i] > 0) {
+      const w1 = 2 * h[i] + h[i - 1];
+      const w2 = h[i] + 2 * h[i - 1];
+      m[i] = (w1 + w2) / (w1 / delta[i - 1] + w2 / delta[i]);
+    } else {
+      m[i] = 0;
+    }
+  }
+
+  // Endpoint slopes (one-sided shape-preserving)
+  m[0] = ((2 * h[0] + h[1]) * delta[0] - h[0] * delta[1]) / (h[0] + h[1]);
+  if (m[0] * delta[0] <= 0) m[0] = 0;
+  else if (Math.abs(m[0]) > 3 * Math.abs(delta[0])) m[0] = 3 * delta[0];
+
+  m[n - 1] =
+    ((2 * h[n - 2] + h[n - 3]) * delta[n - 2] - h[n - 2] * delta[n - 3]) /
+    (h[n - 2] + h[n - 3]);
+  if (m[n - 1] * delta[n - 2] <= 0) m[n - 1] = 0;
+  else if (Math.abs(m[n - 1]) > 3 * Math.abs(delta[n - 2])) m[n - 1] = 3 * delta[n - 2];
+
+  return m;
+}
+
+const TORSO_YS = TORSO_PROFILES.map((p) => p.y);
+const TORSO_SLOPES = {
+  centerZ: computePchipSlopes(
+    TORSO_YS,
+    TORSO_PROFILES.map((p) => p.centerZ)
+  ),
+  rx: computePchipSlopes(
+    TORSO_YS,
+    TORSO_PROFILES.map((p) => p.rx)
+  ),
+  rzFront: computePchipSlopes(
+    TORSO_YS,
+    TORSO_PROFILES.map((p) => p.rzFront)
+  ),
+  rzBack: computePchipSlopes(
+    TORSO_YS,
+    TORSO_PROFILES.map((p) => p.rzBack)
+  ),
+};
+
+function evalCubicHermite(
+  y0: number,
+  y1: number,
+  m0: number,
+  m1: number,
+  h: number,
+  t: number
+): number {
+  const t2 = t * t;
+  const t3 = t2 * t;
+  const h00 = 2 * t3 - 3 * t2 + 1;
+  const h10 = t3 - 2 * t2 + t;
+  const h01 = -2 * t3 + 3 * t2;
+  const h11 = t3 - t2;
+  return h00 * y0 + h10 * h * m0 + h01 * y1 + h11 * h * m1;
+}
+
+/** Evaluates C1-smooth monotone cubic Hermite (PCHIP) torso slice parameters at any height y (cm). */
 export function sampleTorsoProfileAtY(y: number): TorsoSliceProfile {
   const profiles = TORSO_PROFILES;
   if (y <= profiles[0].y) return { ...profiles[0], y };
@@ -110,15 +185,35 @@ export function sampleTorsoProfileAtY(y: number): TorsoSliceProfile {
     const a = profiles[i];
     const b = profiles[i + 1];
     if (y >= a.y && y <= b.y) {
-      const rawT = (y - a.y) / Math.max(1e-6, b.y - a.y);
-      // Smooth Hermite interpolation between anatomical rings
-      const t = rawT * rawT * (3 - 2 * rawT);
+      const h = Math.max(1e-6, b.y - a.y);
+      const t = (y - a.y) / h;
       return {
         y,
-        centerZ: THREE.MathUtils.lerp(a.centerZ, b.centerZ, t),
-        rx: THREE.MathUtils.lerp(a.rx, b.rx, t),
-        rzFront: THREE.MathUtils.lerp(a.rzFront, b.rzFront, t),
-        rzBack: THREE.MathUtils.lerp(a.rzBack, b.rzBack, t),
+        centerZ: evalCubicHermite(
+          a.centerZ,
+          b.centerZ,
+          TORSO_SLOPES.centerZ[i],
+          TORSO_SLOPES.centerZ[i + 1],
+          h,
+          t
+        ),
+        rx: evalCubicHermite(a.rx, b.rx, TORSO_SLOPES.rx[i], TORSO_SLOPES.rx[i + 1], h, t),
+        rzFront: evalCubicHermite(
+          a.rzFront,
+          b.rzFront,
+          TORSO_SLOPES.rzFront[i],
+          TORSO_SLOPES.rzFront[i + 1],
+          h,
+          t
+        ),
+        rzBack: evalCubicHermite(
+          a.rzBack,
+          b.rzBack,
+          TORSO_SLOPES.rzBack[i],
+          TORSO_SLOPES.rzBack[i + 1],
+          h,
+          t
+        ),
       };
     }
   }
@@ -242,7 +337,7 @@ export function getTorsoSurfaceNormal(point: THREE.Vector3): THREE.Vector3 {
 export function getHangerWoodTopY(x: number): number {
   const sX = PLACEMENT_SPECS.hanger.shoulderSpanHalfX;
   const nx = Math.min(1, Math.abs(x) / sX);
-  const archY = 40.45 - 6.85 * Math.pow(nx, 1.55);
+  const archY = 44.85 - 6.85 * Math.pow(nx, 1.55);
   const endCapScale = Math.sqrt(Math.max(0.001, 1.0 - Math.pow(nx, 16)));
   const notch = 1.0 - 0.14 * Math.exp(-Math.pow((nx - 0.72) / 0.032, 2));
   const halfH =
@@ -316,10 +411,11 @@ export function getAssemblyTransformForPlacement(
 
 const CAMERA_POSES_BY_PLACEMENT: Record<PlacementSceneId, Record<CameraPresetId, CameraPresetPose>> = {
   studio: {
-    full: { position: [12.5, 16.0, 82.0], target: [0, 15.2, 0] },
+    full: { position: [14.0, 20.0, 95.0], target: [0, 19.2, 0] },
     front: { position: [4.2, 0.9, 20.6], target: [0, -0.2, 0] },
     back: { position: [-4.2, 0.9, -20.6], target: [0, -0.2, 0] },
-    macro: { position: [2.8, 5.5, 8.2], target: [0, 4.9, 0] },
+    // Frames full iconic clasp assembly cleanly between top & bottom docks: case slot, teardrop lobster claw, O-ring, both rivets & stopper buckle
+    macro: { position: [4.4, 8.6, 17.8], target: [0, 8.4, 0] },
   },
   table: {
     // Editorial 3/4 overhead studio desk shot framing card, right-swept curled lanyard, laptop, espresso cup & pen
@@ -328,28 +424,28 @@ const CAMERA_POSES_BY_PLACEMENT: Record<PlacementSceneId, Record<CameraPresetId,
     front: { position: [-1.0, 22.0, 14.5], target: [-4.2, 0.2, 5.8] },
     // Low oblique table perspective showcasing PVC/case thickness & walnut grain
     back: { position: [-17.5, 12.5, 20.5], target: [-3.2, 0.4, 4.8] },
-    // Close-up on the resting clasp, crimp, and woven strap on the felt mat
-    macro: { position: [1.5, 7.6, 8.2], target: [-3.5, 0.35, 1.8] },
+    // Close-up on the resting lobster clasp, O-ring, matte-black stopper buckle, and rivets on the felt mat
+    macro: { position: [2.8, 10.2, 7.8], target: [-3.0, 0.35, -1.4] },
   },
   torso: {
-    // Waist-up 3/4 portrait showing full walnut neck finial, sculpted shoulders, lanyard & badge cleanly above dock
-    full: { position: [20.0, 20.0, 86.0], target: [0, 10.0, -6.0] },
+    // Waist-up 3/4 portrait showing full walnut neck finial cleanly below top HUD bar & badge above bottom dock
+    full: { position: [20.0, 22.0, 96.0], target: [0, 13.0, -6.0] },
     // Chest hero framing ID card resting against tailored torso
     front: { position: [5.2, 2.4, 24.0], target: [0, 0.6, -1.2] },
     // Rear 3/4 view inspecting how the lanyard curves around the back of the neck
     back: { position: [-22.0, 26.0, -48.0], target: [0, 18.0, -9.0] },
-    // Clasp & chest collar macro
-    macro: { position: [4.2, 7.4, 11.2], target: [0, 5.2, -0.6] },
+    // Clasp, O-ring, matte-black stopper buckle & chest collar macro
+    macro: { position: [4.8, 8.8, 16.8], target: [0, 7.8, -0.6] },
   },
   hanger: {
     // Full vertical boutique rack showcase framing rail, full curved hook, walnut hanger, lanyard & badge cleanly above dock
-    full: { position: [18.0, 26.0, 114.0], target: [0, 19.5, 0] },
+    full: { position: [19.0, 29.5, 122.0], target: [0, 22.5, 0] },
     // Hero close-up on the hanging ID card with hanger visible above
     front: { position: [4.8, 1.5, 22.8], target: [0, 0.0, 0] },
     // Rear 180° shot inspecting back face (open-back boutique rack never blocks camera!)
     back: { position: [-4.8, 1.5, -22.8], target: [0, 0.0, 0] },
     // Close-up of the walnut coat hanger neck & lanyard drape around the steel hook
-    macro: { position: [7.5, 42.5, 16.5], target: [0, 39.8, 0] },
+    macro: { position: [7.5, 46.9, 16.5], target: [0, 44.2, 0] },
   },
 };
 
@@ -390,8 +486,8 @@ export function getPlacementCameraPose(
  * sculpting and clean cylindrical/planar UVs for fabric linen weave mapping.
  */
 export function createTorsoBustGeometry(): THREE.BufferGeometry {
-  const rings = 44;
-  const radialSegs = 48;
+  const rings = 72;
+  const radialSegs = 72;
   const yMin = PLACEMENT_SPECS.torso.baseY;
   const yMax = PLACEMENT_SPECS.torso.topNeckY;
 
@@ -485,13 +581,11 @@ export interface CoatHangerGeometries {
   woodBody: THREE.BufferGeometry;
   steelHook: THREE.BufferGeometry;
   ferruleCollar: THREE.BufferGeometry;
-  trouserBar: THREE.BufferGeometry;
   dispose: () => void;
 }
 
 export function createCoatHangerGeometries(): CoatHangerGeometries {
-  const { woodTopY, woodBottomY, woodHalfDepthZ, shoulderSpanHalfX, trouserBarY, trouserBarRadius, railY } =
-    PLACEMENT_SPECS.hanger;
+  const { woodTopY, woodHalfDepthZ, shoulderSpanHalfX, railY } = PLACEMENT_SPECS.hanger;
 
   // 1. Smoothly lofted ergonomic walnut wishbone hanger body (zero flat-cap triangulation artifacts!)
   const sX = shoulderSpanHalfX; // 21 cm
@@ -504,8 +598,8 @@ export function createCoatHangerGeometries(): CoatHangerGeometries {
   const evalHangerCenter = (u: number): THREE.Vector3 => {
     const x = THREE.MathUtils.lerp(-sX, sX, u);
     const nx = Math.abs(x) / sX; // 0 at center neck, 1 at shoulder tips
-    // Smooth wishbone arch peaking cleanly at center neck (y = 40.4), sloping gently to rounded tips (y = 33.4)
-    const archY = 40.45 - 6.85 * Math.pow(nx, 1.55);
+    // Smooth wishbone arch peaking cleanly at center neck (y = 44.85), sloping gently to rounded tips (y = 38.0)
+    const archY = 44.85 - 6.85 * Math.pow(nx, 1.55);
     // Tailored jacket forward sweep toward outer shoulders
     const sweepZ = 1.65 * Math.pow(Math.max(0, nx - 0.18) / 0.82, 2.0);
     return new THREE.Vector3(x, archY, sweepZ);
@@ -593,22 +687,14 @@ export function createCoatHangerGeometries(): CoatHangerGeometries {
   const ferruleCollar = new THREE.CylinderGeometry(0.42, 0.56, 0.65, 20);
   ferruleCollar.translate(0, woodTopY + 0.18, 0);
 
-  // 4. Lower horizontal trouser bar connecting left & right hanger arms
-  const barLen = (sX - 2.6) * 2;
-  const trouserBar = new THREE.CylinderGeometry(trouserBarRadius, trouserBarRadius, barLen, 16);
-  trouserBar.rotateZ(Math.PI / 2);
-  trouserBar.translate(0, trouserBarY, 0.45);
-
   return {
     woodBody,
     steelHook,
     ferruleCollar,
-    trouserBar,
     dispose: () => {
       woodBody.dispose();
       steelHook.dispose();
       ferruleCollar.dispose();
-      trouserBar.dispose();
     },
   };
 }

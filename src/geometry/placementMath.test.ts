@@ -20,6 +20,7 @@ import {
 } from './placementGeometry';
 import { CARD_SPECS } from './cardGeometry';
 import { CASE_SPECS } from './caseGeometry';
+import { CRIMP_SPECS } from './hardwareGeometry';
 import {
   createInitialSpringState,
   stepOfflinePresetFrame,
@@ -96,31 +97,55 @@ test('table placement rests ID card & lanyard flat on the desk mat and NEVER cli
   }
 });
 
-test('torso placement attaches lanyard flush against the linen bust without floating or clipping', () => {
+test('torso placement drapes naturally with ZERO clipping across EVERY single ribbon vertex', () => {
   const bustGeo = createTorsoBustGeometry();
   assert.ok(bustGeo.boundingBox !== null);
   bustGeo.dispose();
 
   const { points } = buildNormalizedLanyardCurve('torso');
-  let minClearance = Infinity;
-  let maxUpperClearance = -Infinity;
+  let minSpineClearance = Infinity;
+  let maxUpperSpineClearance = -Infinity;
 
   for (const pt of points) {
     const c = computeTorsoSignedClearance(pt);
-    if (c < minClearance) minClearance = c;
-    // Above crimp exit (y >= 11.0), the strap must hug the chest, collarbones, and neck tightly
-    if (pt.y >= 11.0 && c > maxUpperClearance) {
-      maxUpperClearance = c;
+    if (c < minSpineClearance) minSpineClearance = c;
+    if (pt.y >= CRIMP_SPECS.topY + 2.2 && c > maxUpperSpineClearance) {
+      maxUpperSpineClearance = c;
     }
   }
 
   assert.ok(
-    minClearance >= 0.04,
-    `Torso lanyard minimum surface clearance (${minClearance.toFixed(3)} cm) must not clip inside bust`
+    minSpineClearance >= 0.04,
+    `Torso lanyard spine minimum clearance (${minSpineClearance.toFixed(3)} cm) must not clip inside bust`
   );
   assert.ok(
-    maxUpperClearance <= 0.28,
-    `Torso lanyard maximum body clearance (${maxUpperClearance.toFixed(3)} cm) must hug flush without floating`
+    maxUpperSpineClearance <= 0.55,
+    `Torso lanyard spine maximum clearance (${maxUpperSpineClearance.toFixed(3)} cm) must drape naturally without floating`
+  );
+
+  // Strict per-vertex test on the FULL 2.0 cm wide beveled 3D ribbon mesh (all outer edges & back face!)
+  const { geometry } = createLanyardGeometry('torso');
+  const pos = geometry.getAttribute('position') as THREE.BufferAttribute;
+  let minVertexClearance = Infinity;
+  let maxUpperVertexClearance = -Infinity;
+  const v = new THREE.Vector3();
+
+  for (let i = 0; i < pos.count; i++) {
+    v.set(pos.getX(i), pos.getY(i), pos.getZ(i));
+    if (v.y <= CRIMP_SPECS.topY + 0.25) continue;
+    const c = computeTorsoSignedClearance(v);
+    if (c < minVertexClearance) minVertexClearance = c;
+    if (v.y >= CRIMP_SPECS.topY + 2.2 && c > maxUpperVertexClearance) maxUpperVertexClearance = c;
+  }
+  geometry.dispose();
+
+  assert.ok(
+    minVertexClearance >= 0.055,
+    `Every torso lanyard ribbon vertex must clear bust cleanly (found min=${minVertexClearance.toFixed(4)} cm)`
+  );
+  assert.ok(
+    maxUpperVertexClearance <= 0.72,
+    `Torso lanyard ribbon vertices must rest naturally against torso (found max=${maxUpperVertexClearance.toFixed(3)} cm)`
   );
 
   // Check back face of both bare & cased ID card rests cleanly on front chest without penetrating bust
@@ -150,12 +175,11 @@ test('crimp V-junction front and back lanyard legs stay cleanly separated in Z w
   );
 });
 
-test('hanger placement seats lanyard snugly over walnut coat hanger crest and builds all 4 hanger parts', () => {
+test('hanger placement seats lanyard snugly over walnut coat hanger crest with clean 3-part wishbone hanger (no floating bar)', () => {
   const hanger = createCoatHangerGeometries();
   assert.ok(hanger.woodBody.boundingBox !== null);
   assert.ok(hanger.steelHook.getAttribute('position').count > 100);
   assert.ok(hanger.ferruleCollar.getAttribute('position').count > 20);
-  assert.ok(hanger.trouserBar.getAttribute('position').count > 20);
   hanger.dispose();
 
   const { topY, points } = buildNormalizedLanyardCurve('hanger');
@@ -165,13 +189,15 @@ test('hanger placement seats lanyard snugly over walnut coat hanger crest and bu
     `Hanger lanyard topY (${topY.toFixed(2)} cm) should sit snugly on walnut crest (${crestWoodY.toFixed(2)} cm) without floating`
   );
 
-  // Verify points passing the trouser bar elevation (y ≈ 30.8) stay cleanly in front of the bar
-  const barPoints = points.filter((p) => Math.abs(p.y - PLACEMENT_SPECS.hanger.trouserBarY) < 1.2);
-  assert.ok(barPoints.length > 0);
-  for (const p of barPoints) {
+  // Verify the front drop hangs smoothly in front of the sculpted walnut neck
+  const neckFrontPts = points.filter(
+    (p) => Math.abs(p.y - (PLACEMENT_SPECS.hanger.woodBottomY + 1.3)) < 1.2 && p.z > 0
+  );
+  assert.ok(neckFrontPts.length > 0);
+  for (const p of neckFrontPts) {
     assert.ok(
-      p.z > PLACEMENT_SPECS.hanger.trouserBarRadius + 0.35,
-      `Hanger strap at trouser bar y=${p.y.toFixed(2)} should pass cleanly in front (z=${p.z.toFixed(2)})`
+      p.z > PLACEMENT_SPECS.hanger.woodHalfDepthZ + 0.08,
+      `Hanger strap at walnut neck y=${p.y.toFixed(2)} should clear front wood cleanly (z=${p.z.toFixed(2)})`
     );
   }
 });

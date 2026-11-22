@@ -2,8 +2,10 @@ import * as THREE from 'three';
 import { CRIMP_SPECS, getCrimpOuterHalfWidth } from './hardwareGeometry';
 import {
   PLACEMENT_SPECS,
+  computeTorsoSignedClearance,
   getHangerWoodTopY,
   getTorsoSurfaceNormal,
+  projectPointOutsideTorso,
   snapPointToTorsoSurface,
   type PlacementSceneId,
 } from './placementGeometry';
@@ -14,8 +16,8 @@ export const LANYARD_SPECS = {
   strapWidth: 2.0,
   strapThickness: 0.1,
   samples: 320,
-  /** Bottom apex anchored cleanly inside the metal crimp clamp (0.40 cm above crimp base 6.12 cm) */
-  apexY: 6.52,
+  /** Bottom apex anchored cleanly inside the matte-black stopper buckle's top bar slot (y = 11.24 cm) */
+  apexY: 11.24,
   /** Crossover Z offset (+/- 0.115 cm -> 0.23 cm center-to-center > 0.10 cm thickness, zero strap slicing!) */
   crossoverZ: 0.115,
   /** Gentle crossover tilt (+/- 2.0 deg) so 2 cm strap edges never clip across the overlapping leg */
@@ -29,85 +31,86 @@ function smoothstep(edge0: number, edge1: number, x: number): number {
 
 function getRawControlPointsForPlacement(placement: PlacementSceneId): THREE.Vector3[] {
   if (placement === 'table') {
-    // Organic flat-lay ribbon curl sweeping gracefully up-and-RIGHT across the open desk mat,
-    // staying strictly clear of both the upper-left aluminum laptop and upper-right espresso saucer!
+    // Organic flat-lay ribbon curl emerging from the matte-black stopper buckle (y = 11.48) and sweeping
+    // gracefully up-and-RIGHT across the open desk mat, strictly clear of both the laptop and espresso saucer!
     return [
-      new THREE.Vector3(0.0, 0.0, 0.0), // Bottom apex inside crimp (y = 6.52)
-      new THREE.Vector3(0.55, 2.2, 0.09), // Right emergence out of crimp
-      new THREE.Vector3(3.8, 4.8, 0.14), // Right sweep toward open mat
-      new THREE.Vector3(9.4, 8.2, 0.16), // Lower-right gentle curve
-      new THREE.Vector3(12.8, 13.8, 0.16), // Outer right arc (generously clear of espresso saucer!)
-      new THREE.Vector3(12.2, 20.6, 0.14), // Upper-right bend (strictly left of espresso saucer)
-      new THREE.Vector3(8.6, 24.4, 0.12), // Top-right crest
-      new THREE.Vector3(3.8, 23.8, 0.12), // Upper-center crest (strictly right of laptop!)
-      new THREE.Vector3(0.2, 20.4, 0.14), // Mid-left turn
-      new THREE.Vector3(-1.2, 14.8, 0.16), // Inner left sweep (strictly clear of laptop!)
-      new THREE.Vector3(-0.6, 9.4, 0.16), // Lower-left approach
-      new THREE.Vector3(0.1, 4.8, 0.13), // Return curve
-      new THREE.Vector3(-0.4, 2.2, 0.08), // Left return into crimp mouth
+      new THREE.Vector3(0.0, 0.0, 0.0), // Bottom apex inside buckle top bar (y = 11.48)
+      new THREE.Vector3(0.16, 1.4, 0.07), // Straight riveted collar exit
+      new THREE.Vector3(3.4, 3.8, 0.13), // Right sweep toward open desk mat
+      new THREE.Vector3(9.2, 6.8, 0.16), // Lower-right gentle curve
+      new THREE.Vector3(12.6, 12.2, 0.16), // Outer right arc (generously clear of espresso saucer!)
+      new THREE.Vector3(12.0, 18.6, 0.14), // Upper-right bend
+      new THREE.Vector3(8.4, 22.2, 0.12), // Top-right crest
+      new THREE.Vector3(3.6, 21.8, 0.12), // Upper-center crest (strictly right of laptop!)
+      new THREE.Vector3(0.2, 18.2, 0.14), // Mid-left turn
+      new THREE.Vector3(-1.0, 13.0, 0.16), // Inner left sweep (strictly clear of laptop!)
+      new THREE.Vector3(-0.5, 7.8, 0.16), // Lower-left approach
+      new THREE.Vector3(0.06, 3.6, 0.12), // Return curve
+      new THREE.Vector3(-0.14, 1.4, 0.07), // Left return through upper rivet into buckle slot
     ];
   }
 
   if (placement === 'torso') {
-    // Realistic neck-worn drape hugging sternum -> front chest -> collarbones -> base of neck (below neck finial)
+    // Natural gravity-tensioned neck drape emerging straight through the upper rivet above the matte-black
+    // stopper buckle (y = 11.48) and hugging upper chest -> inner collarbone -> nape of neck!
     return [
-      new THREE.Vector3(0.0, 0.0, 0.0), // Bottom apex inside crimp (y = 6.52, z = 0)
-      new THREE.Vector3(0.55, 2.2, -0.18), // Right emergence hugging sternum
-      new THREE.Vector3(3.0, 7.2, -0.55), // Right mid sternum
-      new THREE.Vector3(5.6, 13.0, -1.65), // Right upper chest
-      new THREE.Vector3(7.2, 18.6, -4.6), // Right collarbone / inner trapezius
-      new THREE.Vector3(6.6, 21.8, -9.8), // Right base of neck (y ≈ 28.3 cm)
-      new THREE.Vector3(4.8, 23.4, -13.9), // Right lower back of neck (y ≈ 29.9 cm)
-      new THREE.Vector3(0.0, 24.0, -15.4), // Back of neck collar base (y ≈ 30.5 cm, cleanly below finial!)
-      new THREE.Vector3(-4.8, 23.4, -13.9), // Left lower back of neck
-      new THREE.Vector3(-6.6, 21.8, -9.8), // Left base of neck
-      new THREE.Vector3(-7.2, 18.6, -4.6), // Left collarbone / inner trapezius
-      new THREE.Vector3(-5.6, 13.0, -1.65), // Left upper chest
-      new THREE.Vector3(-3.0, 7.2, -0.55), // Left mid sternum
-      new THREE.Vector3(-0.55, 2.2, -0.18), // Left return into crimp mouth
+      new THREE.Vector3(0.0, 0.0, 0.0), // Bottom apex inside buckle top bar (y = 11.48, z = 0)
+      new THREE.Vector3(0.18, 1.35, -0.14), // Straight riveted collar exit (y = 12.83)
+      new THREE.Vector3(4.2, 4.4, -0.78), // Right upper sternum
+      new THREE.Vector3(8.8, 8.6, -2.55), // Right upper chest / pectoral sweep
+      new THREE.Vector3(10.2, 13.2, -5.35), // Right collarbone / inner shoulder
+      new THREE.Vector3(7.4, 16.8, -9.8), // Right base of neck (y ≈ 28.3 cm)
+      new THREE.Vector3(4.95, 18.4, -13.9), // Right rear base of neck (y ≈ 29.9 cm)
+      new THREE.Vector3(0.0, 19.2, -15.5), // Nape of neck collar base (y ≈ 30.7 cm, cleanly below finial)
+      new THREE.Vector3(-4.95, 18.4, -13.9), // Left rear base of neck
+      new THREE.Vector3(-7.4, 16.8, -9.8), // Left base of neck
+      new THREE.Vector3(-10.2, 13.2, -5.35), // Left collarbone / inner shoulder
+      new THREE.Vector3(-8.8, 8.6, -2.55), // Left upper chest / pectoral sweep
+      new THREE.Vector3(-4.2, 4.4, -0.78), // Left upper sternum
+      new THREE.Vector3(-0.18, 1.35, -0.14), // Left return through upper rivet into buckle slot
     ];
   }
 
   if (placement === 'hanger') {
-    // Gravity-pulled vertical drape sitting FLUSH onto the walnut coat hanger crest around the brass ferrule
-    const crestBackRelY = getHangerWoodTopY(0) + 0.18 - LANYARD_SPECS.apexY;
-    const ridgeRelY = getHangerWoodTopY(1.65) + 0.09 - LANYARD_SPECS.apexY;
-    const woodMidRelY = PLACEMENT_SPECS.hanger.woodBottomY + 1.3 - LANYARD_SPECS.apexY;
-    const barRelY = PLACEMENT_SPECS.hanger.trouserBarY - LANYARD_SPECS.apexY;
+    // Clean gravity-pulled vertical drape sitting FLUSH onto the sculpted walnut wishbone crest around the brass ferrule
+    const crestBackRelY = getHangerWoodTopY(0) + 0.34 - LANYARD_SPECS.apexY;
+    const ridgeRelY = getHangerWoodTopY(2.1) + 0.42 - LANYARD_SPECS.apexY;
+    const woodMidRelY = PLACEMENT_SPECS.hanger.woodBottomY + 1.15 - LANYARD_SPECS.apexY;
+    const upperDropRelY = PLACEMENT_SPECS.hanger.woodBottomY - 6.8 - LANYARD_SPECS.apexY;
     return [
-      new THREE.Vector3(0.0, 0.0, 0.0), // Bottom apex inside crimp (y = 6.52)
-      new THREE.Vector3(0.38, 2.4, 0.14), // Right upright emergence
-      new THREE.Vector3(1.55, 8.8, 0.44), // Right lower drop
-      new THREE.Vector3(2.85, 17.4, 0.78), // Right mid drop
-      new THREE.Vector3(3.15, barRelY, 1.02), // Passes cleanly in front of trouser bar
-      new THREE.Vector3(2.85, woodMidRelY, 1.02), // Passes cleanly in front of walnut neck
-      new THREE.Vector3(1.65, ridgeRelY, 0.24), // Sits flush right on walnut shoulder crest beside ferrule
-      new THREE.Vector3(0.0, crestBackRelY, -0.78), // Hugs tightly behind brass ferrule & steel hook stem
-      new THREE.Vector3(-1.65, ridgeRelY, 0.24), // Left walnut shoulder crest
+      new THREE.Vector3(0.0, 0.0, 0.0), // Bottom apex inside buckle top bar (y = 11.48)
+      new THREE.Vector3(0.14, 1.55, 0.08), // Straight riveted collar exit
+      new THREE.Vector3(1.45, 7.8, 0.34), // Right lower drop
+      new THREE.Vector3(2.85, 17.0, 0.64), // Right mid drop
+      new THREE.Vector3(3.15, upperDropRelY, 0.88), // Right upper straight drop
+      new THREE.Vector3(2.85, woodMidRelY, 1.02), // Clears sculpted walnut neck front cleanly
+      new THREE.Vector3(2.15, ridgeRelY, 0.56), // Sits cleanly atop walnut crest beside brass ferrule
+      new THREE.Vector3(0.0, crestBackRelY, -0.84), // Hugs tightly behind brass ferrule & steel hook stem
+      new THREE.Vector3(-2.15, ridgeRelY, 0.56), // Left walnut shoulder crest
       new THREE.Vector3(-2.85, woodMidRelY, 1.02), // Left front of walnut neck
-      new THREE.Vector3(-3.15, barRelY, 1.02), // Left front of trouser bar
-      new THREE.Vector3(-2.85, 17.4, 0.78), // Left mid drop
-      new THREE.Vector3(-1.55, 8.8, 0.44), // Left lower drop
-      new THREE.Vector3(-0.38, 2.4, 0.14), // Left return into crimp mouth
+      new THREE.Vector3(-3.15, upperDropRelY, 0.88), // Left upper straight drop
+      new THREE.Vector3(-2.85, 17.0, 0.64), // Left mid drop
+      new THREE.Vector3(-1.45, 7.8, 0.34), // Left lower drop
+      new THREE.Vector3(-0.14, 1.55, 0.08), // Left return through upper rivet into buckle slot
     ];
   }
 
-  // Default 'studio': Teardrop collar drape (exact original geometry!)
+  // Default 'studio': Classic vertical event lanyard drape rising cleanly through the upper rivet collar
   return [
-    new THREE.Vector3(0.0, 0.0, 0.0), // Bottom apex deep inside metal crimp (y = 6.52 cm)
-    new THREE.Vector3(0.32, 2.0, 0.08), // Right vertical emergence out of crimp mouth
-    new THREE.Vector3(1.38, 5.8, 0.22), // Right lower V flare
-    new THREE.Vector3(3.2, 12.2, 0.34), // Right chest drape
-    new THREE.Vector3(5.3, 20.8, -0.05), // Right mid rise
-    new THREE.Vector3(6.45, 28.4, -1.15), // Right collarbone curve
-    new THREE.Vector3(4.95, 32.3, -2.55), // Right neck arc
-    new THREE.Vector3(0.0, 33.15, -3.15), // Back of neck crest (~y = 39.5 cm)
-    new THREE.Vector3(-4.95, 32.3, -2.55), // Left neck arc
-    new THREE.Vector3(-6.45, 28.4, -1.15), // Left collarbone curve
-    new THREE.Vector3(-5.3, 20.8, -0.05), // Left mid descent
-    new THREE.Vector3(-3.2, 12.2, 0.34), // Left chest drape
-    new THREE.Vector3(-1.38, 5.8, 0.22), // Left lower V flare
-    new THREE.Vector3(-0.32, 2.0, 0.08), // Left vertical return into crimp mouth
+    new THREE.Vector3(0.0, 0.0, 0.0), // Bottom apex inside buckle top bar (y = 11.48 cm)
+    new THREE.Vector3(0.14, 1.45, 0.04), // Straight riveted collar exit (pins cleanly under upper rivet!)
+    new THREE.Vector3(1.25, 5.2, 0.18), // Right lower V flare
+    new THREE.Vector3(3.35, 11.8, 0.30), // Right chest drape
+    new THREE.Vector3(5.45, 20.4, -0.06), // Right mid rise
+    new THREE.Vector3(6.5, 27.6, -1.15), // Right collarbone curve
+    new THREE.Vector3(4.95, 31.4, -2.55), // Right neck arc
+    new THREE.Vector3(0.0, 32.3, -3.15), // Back of neck crest (~y = 43.8 cm)
+    new THREE.Vector3(-4.95, 31.4, -2.55), // Left neck arc
+    new THREE.Vector3(-6.5, 27.6, -1.15), // Left collarbone curve
+    new THREE.Vector3(-5.45, 20.4, -0.06), // Left mid descent
+    new THREE.Vector3(-3.35, 11.8, 0.30), // Left chest drape
+    new THREE.Vector3(-1.25, 5.2, 0.18), // Left lower V flare
+    new THREE.Vector3(-0.14, 1.45, 0.04), // Left return through upper rivet into buckle slot
   ];
 }
 
@@ -144,27 +147,32 @@ export function buildNormalizedLanyardCurve(placement: PlacementSceneId = 'studi
 
   let curve = buildFromOffsets(scaledOffsets);
 
+  const preSmoothTargetLength =
+    placement === 'torso'
+      ? LANYARD_SPECS.targetCircumference + 1.32
+      : LANYARD_SPECS.targetCircumference;
+
   for (let pass = 0; pass < 16; pass++) {
     const currentLength = curve.getLength();
-    if (Math.abs(currentLength - LANYARD_SPECS.targetCircumference) < 0.005) {
+    if (Math.abs(currentLength - preSmoothTargetLength) < 0.005) {
       break;
     }
-    const factor = LANYARD_SPECS.targetCircumference / currentLength;
+    const factor = preSmoothTargetLength / currentLength;
     scaledOffsets = scaledOffsets.map((p, idx) => {
       if (placement === 'table') {
         // Scale X and Y in the tabletop plane while keeping Z height gently bounded
         return new THREE.Vector3(p.x * factor, p.y * factor, p.z);
       }
       if (placement === 'torso') {
-        // Keep collar naturally seated around the base of the neck (<= 31.2 cm, well below walnut finial)
+        // Keep collar naturally seated around the base of the neck (<= 31.4 cm, well below walnut finial)
         // and gently scale chest/collarbone X flare to hit exact 80.0 cm arc length!
         if (idx === 0) return p.clone();
-        const step = THREE.MathUtils.clamp((factor - 1.0) * 0.9, -0.07, 0.07);
+        const step = THREE.MathUtils.clamp((factor - 1.0) * 1.15, -0.09, 0.09);
         const isChest = idx <= 4 || idx >= 10;
-        const nextX = isChest ? p.x * (1.0 + step * 1.4) : p.x;
+        const nextX = isChest ? p.x * (1.0 + step * 1.65) : p.x * (1.0 + step * 0.35);
         const nextY = Math.min(
-          31.2 - LANYARD_SPECS.apexY,
-          p.y * (1.0 + step * 0.45)
+          31.4 - LANYARD_SPECS.apexY,
+          p.y * (1.0 + step * 0.55)
         );
         return new THREE.Vector3(nextX, nextY, p.z);
       }
@@ -182,15 +190,33 @@ export function buildNormalizedLanyardCurve(placement: PlacementSceneId = 'studi
 
   let sampled = curve.getSpacedPoints(LANYARD_SPECS.samples);
 
-  // Final flush surface attachment for torso so EVERY dense spline sample hugs the linen bust with zero floating gap!
+  // Final tensioned surface drape for torso: pull gently onto bust, then relax via Laplacian smoothing
+  // interleaved with outward-only projection so the strap bridges hollows naturally with zero kinks or floating!
   if (placement === 'torso') {
     sampled = sampled.map((pt, i) => {
-      if (i === 0 || i === sampled.length - 1) return pt;
+      if (i === 0 || i === sampled.length - 1) return pt.clone();
       const attachBlend = smoothstep(CRIMP_SPECS.topY + 0.1, CRIMP_SPECS.topY + 1.8, pt.y);
-      if (attachBlend <= 1e-4) return pt;
-      const snapped = snapPointToTorsoSurface(pt, 0.115);
+      if (attachBlend <= 1e-4) return pt.clone();
+      const snapped = snapPointToTorsoSurface(pt, 0.145);
       return pt.clone().lerp(snapped, attachBlend);
     });
+
+    const smoothPasses = 6;
+    for (let pass = 0; pass < smoothPasses; pass++) {
+      const next = sampled.map((p) => p.clone());
+      for (let i = 1; i < sampled.length - 1; i++) {
+        const avgX = 0.25 * sampled[i - 1].x + 0.5 * sampled[i].x + 0.25 * sampled[i + 1].x;
+        const avgY = 0.25 * sampled[i - 1].y + 0.5 * sampled[i].y + 0.25 * sampled[i + 1].y;
+        const avgZ = 0.25 * sampled[i - 1].z + 0.5 * sampled[i].z + 0.25 * sampled[i + 1].z;
+        const relaxed = new THREE.Vector3(avgX, avgY, avgZ);
+        if (relaxed.y > CRIMP_SPECS.topY + 0.2) {
+          next[i] = projectPointOutsideTorso(relaxed, 0.145);
+        } else {
+          next[i] = relaxed;
+        }
+      }
+      sampled = next;
+    }
   } else if (placement === 'table') {
     sampled = sampled.map((pt, i) => {
       if (i === 0 || i === sampled.length - 1) return pt;
@@ -369,6 +395,30 @@ export function createLanyardGeometry(placement: PlacementSceneId = 'studio'): {
     binormals.push(currB);
   }
 
+  // Smooth torso ribbon normals across neighboring rings (Gaussian relaxation) so the 2 cm webbing
+  // flows naturally across collarbone & shoulder curvature with ZERO ripples or twisting!
+  if (placement === 'torso') {
+    for (let pass = 0; pass < 10; pass++) {
+      const nextNormals = normals.map((n) => n.clone());
+      for (let i = 1; i < N; i++) {
+        const blended = normals[i - 1]
+          .clone()
+          .multiplyScalar(0.25)
+          .addScaledVector(normals[i], 0.5)
+          .addScaledVector(normals[i + 1], 0.25);
+        const tVec = tangents[i];
+        blended.addScaledVector(tVec, -blended.dot(tVec));
+        if (blended.lengthSq() > 1e-8) {
+          nextNormals[i] = blended.normalize();
+        }
+      }
+      for (let i = 1; i < N; i++) {
+        normals[i] = nextNormals[i];
+        binormals[i] = new THREE.Vector3().crossVectors(tangents[i], normals[i]).normalize();
+      }
+    }
+  }
+
   // Cancel closed-loop 3D Bishop holonomy so the returning left leg arrives flat facing +Z inside the crimp
   const endT = tangents[N];
   const desiredEndN = new THREE.Vector3(0, 0, 1)
@@ -393,9 +443,16 @@ export function createLanyardGeometry(placement: PlacementSceneId = 'studio'): {
   const flatN = new THREE.Vector3();
   const vertex = new THREE.Vector3();
 
+  // Precompute per-ring frames & smoothed outward torso clearance lift so EVERY single ribbon vertex
+  // (including both outer edges & back face) stays strictly outside the linen bust with ZERO clipping!
+  const ringCenters: THREE.Vector3[] = new Array(N + 1);
+  const ringB: THREE.Vector3[] = new Array(N + 1);
+  const ringN: THREE.Vector3[] = new Array(N + 1);
+  const ringHalfW: number[] = new Array(N + 1);
+
   for (let i = 0; i <= N; i++) {
     const t = i / N;
-    const center = spine[i];
+    const center = spine[i].clone();
     const b = binormals[i];
     const n = normals[i];
 
@@ -419,25 +476,87 @@ export function createLanyardGeometry(placement: PlacementSceneId = 'studio'): {
       twistedN.lerp(flatN, crimpBlend).normalize();
     }
 
-    // Physically pinch the 2.0 cm strap cleanly into the tapered steel crimp housing (y <= 7.55 cm)
-    const jawPinch = smoothstep(LANYARD_SPECS.apexY, CRIMP_SPECS.topY + 0.35, center.y);
-    const localHalfW = THREE.MathUtils.lerp(0.46, halfW, jawPinch);
+    // Keep full 2.0 cm polyester strap neatly seated inside the wide 2.12 cm matte-black stopper buckle slot
+    // (subtle 0.94 -> 1.00 cm feathering instead of narrow cone pinch)
+    const jawPinch = smoothstep(LANYARD_SPECS.apexY, CRIMP_SPECS.topY + 0.3, center.y);
+    const localHalfW = THREE.MathUtils.lerp(0.92, halfW, jawPinch);
 
+    ringCenters[i] = center;
+    ringB[i] = twistedB.clone();
+    ringN[i] = twistedN.clone();
+    ringHalfW[i] = localHalfW;
+  }
+
+  if (placement === 'torso') {
+    const minTargetClearance = 0.095;
+    for (let corrPass = 0; corrPass < 3; corrPass++) {
+      const lifts = new Float32Array(N + 1);
+      for (let i = 0; i <= N; i++) {
+        const center = ringCenters[i];
+        if (center.y <= CRIMP_SPECS.topY + 0.12) continue;
+        let minC = Infinity;
+        for (let j = 0; j < P; j++) {
+          const prof = profile[j];
+          vertex
+            .copy(center)
+            .addScaledVector(ringB[i], prof.wNorm * ringHalfW[i])
+            .addScaledVector(ringN[i], prof.th);
+          const c = computeTorsoSignedClearance(vertex);
+          if (c < minC) minC = c;
+        }
+        if (minC < minTargetClearance) {
+          lifts[i] = minTargetClearance - minC;
+        }
+      }
+
+      // Smooth upward envelope so lift transitions seamlessly along the webbing with zero bumps
+      const smoothedLifts = new Float32Array(lifts);
+      for (let sPass = 0; sPass < 4; sPass++) {
+        const nextLifts = new Float32Array(smoothedLifts);
+        for (let i = 1; i < N; i++) {
+          const avg =
+            0.25 * smoothedLifts[i - 1] + 0.5 * smoothedLifts[i] + 0.25 * smoothedLifts[i + 1];
+          nextLifts[i] = Math.max(lifts[i], avg);
+        }
+        smoothedLifts.set(nextLifts);
+      }
+
+      let maxApplied = 0;
+      for (let i = 0; i <= N; i++) {
+        const l = smoothedLifts[i];
+        if (l > 1e-4) {
+          const outDir = getTorsoSurfaceNormal(ringCenters[i]);
+          // Keep lift primarily horizontal-outward on chest & neck so Y drape stays stable
+          outDir.y *= 0.35;
+          outDir.normalize();
+          ringCenters[i].addScaledVector(outDir, l);
+          if (l > maxApplied) maxApplied = l;
+        }
+      }
+      if (maxApplied < 0.002) break;
+    }
+  }
+
+  for (let i = 0; i <= N; i++) {
+    const center = ringCenters[i];
+    const rB = ringB[i];
+    const rN = ringN[i];
+    const localHalfW = ringHalfW[i];
     const vCoord = cumulativeLengths[i] / LANYARD_SPECS.targetCircumference;
 
     for (let j = 0; j <= P; j++) {
       const prof = profile[j % P];
       vertex
         .copy(center)
-        .addScaledVector(twistedB, prof.wNorm * localHalfW)
-        .addScaledVector(twistedN, prof.th);
+        .addScaledVector(rB, prof.wNorm * localHalfW)
+        .addScaledVector(rN, prof.th);
 
-      // Strict physical containment inside metal crimp jaws (y <= crimp top mouth) -> mathematically zero poke-through!
+      // Strict physical containment inside matte-black stopper buckle top slot -> mathematically zero poke-through!
       if (vertex.y <= CRIMP_SPECS.topY + 0.02) {
-        vertex.y = Math.max(CRIMP_SPECS.bottomY + 0.18, vertex.y);
-        const maxInnerX = Math.max(0.2, getCrimpOuterHalfWidth(vertex.y) - 0.12);
+        vertex.y = Math.max(CRIMP_SPECS.bottomY + 0.14, vertex.y);
+        const maxInnerX = Math.max(0.2, getCrimpOuterHalfWidth(vertex.y) - 0.10);
         vertex.x = THREE.MathUtils.clamp(vertex.x, -maxInnerX, maxInnerX);
-        const maxInnerZ = CRIMP_SPECS.halfDepthZ - 0.08;
+        const maxInnerZ = CRIMP_SPECS.halfDepthZ - 0.05;
         vertex.z = THREE.MathUtils.clamp(vertex.z, -maxInnerZ, maxInnerZ);
       }
 

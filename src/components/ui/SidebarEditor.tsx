@@ -120,6 +120,10 @@ function ArtboardPreview({ layerId }: { layerId: LayerId }) {
       imgCacheRef.current = { url: layer.uploadedImageUrl, img };
       paint(img);
     };
+    img.onerror = () => {
+      imgCacheRef.current = { url: null, img: null };
+      paint(null);
+    };
     img.src = layer.uploadedImageUrl;
 
     return () => {
@@ -366,6 +370,10 @@ export function SidebarEditor() {
   const asideRef = useRef<HTMLElement>(null);
   const scrollBodyRef = useRef<HTMLDivElement>(null);
 
+  // Drag-and-drop upload state
+  const [isFileDragOver, setIsFileDragOver] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
   // Mobile bottom-sheet swipe-down-to-close state
   const [drawerDragY, setDrawerDragY] = useState(0);
   const [isDrawerDragging, setIsDrawerDragging] = useState(false);
@@ -526,24 +534,46 @@ export function SidebarEditor() {
   const currentLayer = currentLayerId ? layers[currentLayerId] : null;
 
   const handleTabChange = (tab: SidebarTabId) => {
+    setUploadError(null);
     setActiveTab(tab);
+    scrollBodyRef.current?.scrollTo({ top: 0 });
     if (tab === 'front') setCameraPreset('front');
     else if (tab === 'back') setCameraPreset('back');
     else if (tab === 'lanyard') setCameraPreset('full');
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!currentLayerId) return;
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const processUploadFile = (file: File | null | undefined) => {
+    if (!currentLayerId || !file) return;
+    if (!file.type.startsWith('image/')) {
+      setUploadError('Please upload a PNG, JPG, WebP, or SVG image file.');
+      return;
+    }
+    if (file.size > 20 * 1024 * 1024) {
+      setUploadError('Image exceeds 20 MB limit. Please compress or resize before uploading.');
+      return;
+    }
+    setUploadError(null);
     const reader = new FileReader();
     reader.onload = () => {
       if (typeof reader.result === 'string') {
         setLayerUpload(currentLayerId, reader.result, file.name);
       }
     };
+    reader.onerror = () => {
+      setUploadError('Could not read the selected image file.');
+    };
     reader.readAsDataURL(file);
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    processUploadFile(e.target.files?.[0]);
     e.target.value = '';
+  };
+
+  const handleFileDrop = (e: React.DragEvent<HTMLButtonElement>) => {
+    e.preventDefault();
+    setIsFileDragOver(false);
+    processUploadFile(e.dataTransfer.files?.[0]);
   };
 
   const backdropAlpha = computeBackdropOpacity(
@@ -598,18 +628,28 @@ export function SidebarEditor() {
 
           {/* Clean Studio Header */}
           <header className="px-5 py-3 lg:py-4 border-b border-white/10 flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <h1 className="text-[15px] font-semibold tracking-tight text-zinc-100 whitespace-nowrap">
-                BadgeForge 3D
-              </h1>
-              <p className="text-[11px] font-mono tabular-nums text-zinc-400 mt-0.5">
-                CR80 5.4×8.56 cm · Lanyard 80×2 cm
-              </p>
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div
+                aria-hidden="true"
+                className="w-8 h-8 rounded-lg bg-indigo-600/20 border border-indigo-400/35 flex items-center justify-center shrink-0"
+              >
+                <span className="w-3.5 h-5 rounded-[3px] border-[1.5px] border-indigo-300 relative flex flex-col items-center pt-0.5">
+                  <span className="w-1.5 h-[1.5px] rounded-full bg-indigo-300" />
+                </span>
+              </div>
+              <div className="min-w-0">
+                <h1 className="text-[15px] font-semibold tracking-tight text-zinc-100 whitespace-nowrap leading-tight">
+                  BadgeForge 3D
+                </h1>
+                <p className="text-[11px] font-mono tabular-nums text-zinc-400 mt-0.5">
+                  CR80 5.4×8.56 cm · 80×2 cm
+                </p>
+              </div>
             </div>
             <button
               type="button"
               onClick={() => setMobileDrawerOpen(false)}
-              className="lg:hidden min-h-[40px] px-3.5 rounded-xl bg-indigo-600 text-xs font-semibold text-white whitespace-nowrap shrink-0"
+              className="lg:hidden min-h-[40px] px-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-xs font-semibold text-white whitespace-nowrap shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-300"
             >
               Done
             </button>
@@ -692,19 +732,42 @@ export function SidebarEditor() {
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-lg border border-dashed border-white/20 bg-white/[0.03] hover:bg-indigo-500/10 hover:border-indigo-400/50 text-xs font-medium text-zinc-200 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400"
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  setIsFileDragOver(true);
+                }}
+                onDragLeave={() => setIsFileDragOver(false)}
+                onDrop={handleFileDrop}
+                className={`w-full flex flex-col items-center justify-center gap-1 py-3 px-4 rounded-xl border border-dashed text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${
+                  isFileDragOver
+                    ? 'border-indigo-400 bg-indigo-500/15 text-indigo-100'
+                    : 'border-white/20 bg-white/[0.03] hover:bg-indigo-500/10 hover:border-indigo-400/50 text-zinc-200'
+                }`}
               >
-                <Upload className="w-3.5 h-3.5 text-indigo-400" />
-                <span className="truncate">
-                  {currentLayer.uploadedFileName
-                    ? `Replace: ${currentLayer.uploadedFileName}`
-                    : `Upload ${
-                        currentLayerId === 'lanyard'
-                          ? 'Lanyard Banner / Logo'
-                          : `${currentLayerId === 'front' ? 'Front' : 'Back'} Design`
-                      } (PNG, JPG, SVG)`}
+                <span className="inline-flex items-center gap-2 max-w-full">
+                  <Upload className="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+                  <span className="truncate">
+                    {isFileDragOver
+                      ? 'Drop image to apply'
+                      : currentLayer.uploadedFileName
+                        ? `Replace: ${currentLayer.uploadedFileName}`
+                        : `Upload ${
+                            currentLayerId === 'lanyard'
+                              ? 'Lanyard Banner / Logo'
+                              : `${currentLayerId === 'front' ? 'Front' : 'Back'} Design`
+                          }`}
+                  </span>
+                </span>
+                <span className="text-[10px] text-zinc-500">
+                  Click or drag &amp; drop · PNG, JPG, WebP, SVG
                 </span>
               </button>
+
+              {uploadError && (
+                <p className="text-[11px] text-rose-300 bg-rose-500/10 border border-rose-500/25 rounded-lg px-2.5 py-1.5">
+                  {uploadError}
+                </p>
+              )}
             </section>
 
             {/* 2D Transform Controls */}
@@ -730,8 +793,9 @@ export function SidebarEditor() {
                   <button
                     key={mode}
                     type="button"
+                    aria-pressed={currentLayer.fitMode === mode}
                     onClick={() => updateLayer(currentLayerId, { fitMode: mode })}
-                    className={`py-1.5 text-xs font-medium rounded-md capitalize transition-colors ${
+                    className={`py-1.5 text-xs font-medium rounded-md capitalize transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${
                       currentLayer.fitMode === mode
                         ? 'bg-indigo-600 text-white'
                         : 'text-zinc-400 hover:text-zinc-200'
@@ -825,8 +889,9 @@ export function SidebarEditor() {
                     <button
                       key={deg}
                       type="button"
+                      aria-pressed={currentLayer.rotation === deg}
                       onClick={() => updateLayer(currentLayerId, { rotation: deg })}
-                      className={`px-2.5 py-1 text-[11px] font-mono tabular-nums rounded-md border transition-colors ${
+                      className={`px-2.5 py-1 text-[11px] font-mono tabular-nums rounded-md border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 ${
                         currentLayer.rotation === deg
                           ? 'bg-indigo-600/25 border-indigo-400/60 text-indigo-200'
                           : 'bg-[#090b0f] border-white/10 text-zinc-400 hover:text-zinc-200'
@@ -986,8 +1051,8 @@ export function SidebarEditor() {
                 <div className="grid grid-cols-2 gap-1.5">
                   {(
                     [
+                      { id: 'frosted-clear', label: 'Crystal Clear', color: '#e2ecff' },
                       { id: 'matte-obsidian', label: 'Matte Obsidian', color: '#1b1e26' },
-                      { id: 'frosted-clear', label: 'Frosted Clear', color: '#cbd5e1' },
                       { id: 'glacier-white', label: 'Glacier White', color: '#f1f5f9' },
                       { id: 'slate-aluminum', label: 'Anodized Alloy', color: '#b8c2d1' },
                       { id: 'cobalt-frame', label: 'Cobalt Frame', color: '#1d4ed8' },
